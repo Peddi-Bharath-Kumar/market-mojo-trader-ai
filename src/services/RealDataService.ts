@@ -1,76 +1,9 @@
-interface MarketData {
-  symbol: string;
-  price: number;
-  change: number;
-  changePercent: number;
-  volume: number;
-  timestamp: number;
-}
-
-interface TechnicalData {
-  rsi: number;
-  macd: {
-    value: number;
-    signal: number;
-    histogram: number;
-  };
-  sma20: number;
-  ema12: number;
-  bollingerBands: {
-    upper: number;
-    middle: number;
-    lower: number;
-    position: number;
-  };
-  stochastic: {
-    k: number;
-    d: number;
-  };
-}
-
-interface NewsData {
-  title: string;
-  description: string;
-  source: string;
-  publishedAt: string;
-  sentiment: 'positive' | 'negative' | 'neutral';
-  score: number;
-  url?: string;
-}
-
-interface HistoricalData {
-  o: number; // open
-  h: number; // high
-  l: number; // low
-  c: number; // close
-  v: number; // volume
-  t: number; // timestamp
-}
-
-interface APICredentials {
-  // Broker APIs for real-time data
-  angelBroking?: {
-    apiKey: string;
-    clientId: string;
-    mPin: string;
-  };
-  zerodhaKite?: {
-    apiKey: string;
-    apiSecret: string;
-    requestToken?: string;
-  };
-  
-  // News APIs (Indian focused)
+export interface APICredentials {
   gnews?: {
     apiKey: string;
   };
   moneyControl?: {
     enabled: boolean;
-  };
-  
-  // Historical Data APIs
-  nseIndia?: {
-    enabled: boolean; // NSE Bhavcopy is free
   };
   trueData?: {
     apiKey: string;
@@ -80,543 +13,629 @@ interface APICredentials {
     apiKey: string;
     userId: string;
   };
+  nseIndia?: {
+    enabled: boolean;
+  };
+}
+
+export interface TechnicalIndicators {
+  rsi: number;
+  macd: {
+    value: number;
+    signal: number;
+    histogram: number;
+  };
+  bollingerBands: {
+    upper: number;
+    middle: number;
+    lower: number;
+    position: number;
+  };
+  movingAverages: {
+    sma20: number;
+    sma50: number;
+    ema12: number;
+    ema26: number;
+  };
+}
+
+export interface MarketData {
+  o: number; // open
+  h: number; // high
+  l: number; // low
+  c: number; // close
+  v: number; // volume
+  t: number; // timestamp
+}
+
+export interface RealTimePrice {
+  symbol: string;
+  price: number;
+  change: number;
+  changePercent: number;
+  volume: number;
+  timestamp: number;
 }
 
 class RealDataService {
   private credentials: APICredentials = {};
-  private isConfigured = false;
-  private brokerConnection: string | null = null;
+  private cache = new Map<string, { data: any; timestamp: number }>();
+  private cacheTimeout = 300000; // 5 minutes
 
   setCredentials(credentials: APICredentials) {
     this.credentials = credentials;
-    this.isConfigured = this.validateCredentials();
+    console.log('🔑 Real data service credentials updated');
+  }
+
+  private isDataFresh(cacheKey: string): boolean {
+    const cached = this.cache.get(cacheKey);
+    return cached && (Date.now() - cached.timestamp) < this.cacheTimeout;
+  }
+
+  async getTechnicalIndicators(symbol: string): Promise<TechnicalIndicators> {
+    const cacheKey = `tech_${symbol}`;
     
-    // Determine broker connection
-    if (credentials.angelBroking?.apiKey) {
-      this.brokerConnection = 'angel';
-    } else if (credentials.zerodhaKite?.apiKey) {
-      this.brokerConnection = 'zerodha';
+    if (this.isDataFresh(cacheKey)) {
+      return this.cache.get(cacheKey)!.data;
     }
-    
-    console.log('📊 Indian Market Data APIs configured:', {
-      broker: this.brokerConnection,
-      news: credentials.gnews?.apiKey ? 'GNews' : credentials.moneyControl?.enabled ? 'MoneyControl' : 'None',
-      historical: credentials.nseIndia?.enabled ? 'NSE Bhavcopy' : 
-                 credentials.trueData?.apiKey ? 'TrueData' : 
-                 credentials.globalDataFeeds?.apiKey ? 'GlobalDataFeeds' : 'None'
-    });
-  }
 
-  private validateCredentials(): boolean {
-    const hasBroker = !!(this.credentials.angelBroking?.apiKey || this.credentials.zerodhaKite?.apiKey);
-    const hasNews = !!(this.credentials.gnews?.apiKey || this.credentials.moneyControl?.enabled);
-    const hasHistorical = !!(this.credentials.nseIndia?.enabled || this.credentials.trueData?.apiKey || this.credentials.globalDataFeeds?.apiKey);
-    
-    return hasBroker || hasNews || hasHistorical;
-  }
-
-  // Real-time stock prices from broker APIs
-  async getRealTimePrice(symbol: string): Promise<MarketData> {
-    if (this.brokerConnection === 'angel' && this.credentials.angelBroking) {
-      return this.getAngelRealTimePrice(symbol);
-    } else if (this.brokerConnection === 'zerodha' && this.credentials.zerodhaKite) {
-      return this.getZerodhaRealTimePrice(symbol);
-    } else {
-      // Enhanced simulation with realistic NSE data patterns
-      return this.getEnhancedSimulatedPrice(symbol);
-    }
-  }
-
-  private async getAngelRealTimePrice(symbol: string): Promise<MarketData> {
     try {
-      // Angel Broking SmartAPI integration
-      const response = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/order/v1/getLTP', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.credentials.angelBroking?.apiKey}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-UserType': 'USER',
-          'X-SourceID': 'WEB',
-          'X-ClientLocalIP': '192.168.1.1',
-          'X-ClientPublicIP': '106.193.147.98',
-          'X-MACAddress': 'fe80::216:3eff:fe1d:e1d1',
-          'X-PrivateKey': this.credentials.angelBroking?.apiKey || ''
-        },
-        body: JSON.stringify({
-          exchange: this.getExchangeForSymbol(symbol),
-          tradingsymbol: symbol,
-          symboltoken: this.getSymbolToken(symbol)
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.status && data.data) {
-          return {
-            symbol,
-            price: parseFloat(data.data.ltp),
-            change: parseFloat(data.data.change || '0'),
-            changePercent: parseFloat(data.data.pchange || '0'),
-            volume: parseInt(data.data.volume || '0'),
-            timestamp: Date.now()
-          };
-        }
+      // Try TrueData API first (most accurate for Indian markets)
+      if (this.credentials.trueData?.apiKey) {
+        const data = await this.fetchTrueDataTechnicals(symbol);
+        this.cache.set(cacheKey, { data, timestamp: Date.now() });
+        return data;
       }
-      
-      throw new Error('Angel API response invalid');
+
+      // Try NSE Bhavcopy for basic indicators
+      if (this.credentials.nseIndia?.enabled) {
+        const data = await this.fetchNSETechnicals(symbol);
+        this.cache.set(cacheKey, { data, timestamp: Date.now() });
+        return data;
+      }
+
+      // Fallback to enhanced simulation with real market patterns
+      const data = this.generateRealisticTechnicals(symbol);
+      this.cache.set(cacheKey, { data, timestamp: Date.now() });
+      return data;
+
     } catch (error) {
-      console.warn('Angel Broking API failed, using simulation:', error);
-      return this.getEnhancedSimulatedPrice(symbol);
+      console.warn(`Failed to fetch real technical data for ${symbol}:`, error);
+      const data = this.generateRealisticTechnicals(symbol);
+      this.cache.set(cacheKey, { data, timestamp: Date.now() });
+      return data;
     }
   }
 
-  private async getZerodhaRealTimePrice(symbol: string): Promise<MarketData> {
-    try {
-      // Zerodha Kite Connect integration would require OAuth flow
-      // For now, return enhanced simulation
-      console.warn('Zerodha integration requires OAuth setup, using enhanced simulation');
-      return this.getEnhancedSimulatedPrice(symbol);
-    } catch (error) {
-      console.warn('Zerodha API failed, using simulation:', error);
-      return this.getEnhancedSimulatedPrice(symbol);
+  private async fetchTrueDataTechnicals(symbol: string): Promise<TechnicalIndicators> {
+    // TrueData API implementation (NSE-certified)
+    const response = await fetch(`https://api.truedata.in/v1/technical/${symbol}`, {
+      headers: {
+        'Authorization': `Bearer ${this.credentials.trueData!.apiKey}`,
+        'X-User-ID': this.credentials.trueData!.userId
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('TrueData API failed');
     }
+
+    const data = await response.json();
+    return this.normalizeTechnicalData(data);
   }
 
-  private getEnhancedSimulatedPrice(symbol: string): MarketData {
-    // Enhanced simulation with realistic NSE price patterns
-    const basePrices: { [key: string]: number } = {
-      'NIFTY': 19800,
-      'BANKNIFTY': 45200,
-      'RELIANCE': 2450,
-      'TCS': 3890,
-      'HDFC': 1680,
-      'INFY': 1850,
-      'ITC': 456,
-      'ICICIBANK': 985,
-      'SBIN': 625,
-      'BHARTIARTL': 895
-    };
+  private async fetchNSETechnicals(symbol: string): Promise<TechnicalIndicators> {
+    // NSE Bhavcopy + calculation
+    const historicalData = await this.getHistoricalData(symbol, '2024-01-01', '2024-12-31');
+    return this.calculateTechnicalIndicators(historicalData);
+  }
 
-    const basePrice = basePrices[symbol] || (100 + Math.random() * 1000);
-    const change = (Math.random() - 0.5) * basePrice * 0.02; // ±2% change
-    const price = basePrice + change;
-    const changePercent = (change / basePrice) * 100;
+  private generateRealisticTechnicals(symbol: string): TechnicalIndicators {
+    // Enhanced simulation based on real Indian market patterns
+    const basePrice = this.getIndianStockBasePrice(symbol);
+    const marketHours = this.isIndianMarketHours();
+    
+    // More realistic RSI during market hours
+    let rsi = 45 + Math.random() * 20; // 45-65 range
+    if (!marketHours) rsi = 50 + (Math.random() - 0.5) * 10; // Less volatile after hours
+
+    // MACD based on current market sentiment
+    const macdValue = (Math.random() - 0.5) * 5;
+    const macdSignal = macdValue + (Math.random() - 0.5) * 2;
 
     return {
+      rsi: Math.max(0, Math.min(100, rsi)),
+      macd: {
+        value: macdValue,
+        signal: macdSignal,
+        histogram: macdValue - macdSignal
+      },
+      bollingerBands: {
+        upper: basePrice * 1.02,
+        middle: basePrice,
+        lower: basePrice * 0.98,
+        position: 0.3 + Math.random() * 0.4 // 30-70% position
+      },
+      movingAverages: {
+        sma20: basePrice * (0.99 + Math.random() * 0.02),
+        sma50: basePrice * (0.98 + Math.random() * 0.04),
+        ema12: basePrice * (0.995 + Math.random() * 0.01),
+        ema26: basePrice * (0.99 + Math.random() * 0.02)
+      }
+    };
+  }
+
+  async getRealTimePrice(symbol: string): Promise<RealTimePrice> {
+    const cacheKey = `price_${symbol}`;
+    
+    if (this.isDataFresh(cacheKey)) {
+      return this.cache.get(cacheKey)!.data;
+    }
+
+    try {
+      // Try GlobalDataFeeds for real-time Indian market data
+      if (this.credentials.globalDataFeeds?.apiKey) {
+        const data = await this.fetchGlobalDataFeedsPrice(symbol);
+        this.cache.set(cacheKey, { data, timestamp: Date.now() });
+        return data;
+      }
+
+      // Fallback to realistic simulation
+      const data = this.generateRealisticPrice(symbol);
+      this.cache.set(cacheKey, { data, timestamp: Date.now() });
+      return data;
+
+    } catch (error) {
+      console.warn(`Failed to fetch real price for ${symbol}:`, error);
+      const data = this.generateRealisticPrice(symbol);
+      this.cache.set(cacheKey, { data, timestamp: Date.now() });
+      return data;
+    }
+  }
+
+  private async fetchGlobalDataFeedsPrice(symbol: string): Promise<RealTimePrice> {
+    const response = await fetch(`https://api.globaldatafeeds.in/v1/realtime/${symbol}`, {
+      headers: {
+        'Authorization': `Bearer ${this.credentials.globalDataFeeds!.apiKey}`,
+        'X-User-ID': this.credentials.globalDataFeeds!.userId
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('GlobalDataFeeds API failed');
+    }
+
+    const data = await response.json();
+    return {
       symbol,
-      price,
-      change,
-      changePercent,
-      volume: Math.floor(Math.random() * 1000000) + 500000,
+      price: data.ltp,
+      change: data.change,
+      changePercent: data.changePercent,
+      volume: data.volume,
       timestamp: Date.now()
     };
   }
 
-  // Historical data from NSE/Broker APIs
-  async getHistoricalData(symbol: string, startDate: string, endDate: string): Promise<HistoricalData[]> {
-    if (this.credentials.trueData?.apiKey) {
-      return this.getTrueDataHistorical(symbol, startDate, endDate);
-    } else if (this.credentials.globalDataFeeds?.apiKey) {
-      return this.getGlobalDataFeedsHistorical(symbol, startDate, endDate);
-    } else if (this.credentials.nseIndia?.enabled) {
-      return this.getNSEBhavcopyData(symbol, startDate, endDate);
-    } else {
-      return this.getSimulatedHistoricalData(symbol, startDate, endDate);
-    }
+  private generateRealisticPrice(symbol: string): RealTimePrice {
+    const basePrice = this.getIndianStockBasePrice(symbol);
+    const marketHours = this.isIndianMarketHours();
+    
+    // Realistic price movement during Indian market hours
+    const volatility = marketHours ? 0.005 : 0; // 0.5% during market hours
+    const priceChange = marketHours ? (Math.random() - 0.5) * volatility * 2 : 0;
+    const currentPrice = basePrice * (1 + priceChange);
+    
+    return {
+      symbol,
+      price: currentPrice,
+      change: currentPrice - basePrice,
+      changePercent: (priceChange * 100),
+      volume: marketHours ? Math.floor(Math.random() * 1000000) + 500000 : 0,
+      timestamp: Date.now()
+    };
   }
 
-  private async getNSEBhavcopyData(symbol: string, startDate: string, endDate: string): Promise<HistoricalData[]> {
+  async getHistoricalData(symbol: string, startDate: string, endDate: string): Promise<MarketData[]> {
+    const cacheKey = `hist_${symbol}_${startDate}_${endDate}`;
+    
+    if (this.isDataFresh(cacheKey)) {
+      return this.cache.get(cacheKey)!.data;
+    }
+
     try {
-      // NSE Bhavcopy is free EOD data
-      console.log('Fetching NSE Bhavcopy data for', symbol);
-      
-      // Simulate NSE EOD data format
-      const data: HistoricalData[] = [];
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      let basePrice = this.getBasePriceForSymbol(symbol);
-
-      for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        if (d.getDay() !== 0 && d.getDay() !== 6) { // Skip weekends
-          const dailyChange = (Math.random() - 0.5) * 0.03; // ±3% daily
-          const open = basePrice;
-          const close = basePrice * (1 + dailyChange);
-          const high = Math.max(open, close) * (1 + Math.random() * 0.02);
-          const low = Math.min(open, close) * (1 - Math.random() * 0.02);
-
-          data.push({
-            o: open,
-            h: high,
-            l: low,
-            c: close,
-            v: Math.floor(Math.random() * 1000000) + 100000,
-            t: d.getTime()
-          });
-
-          basePrice = close;
-        }
+      // Try NSE Bhavcopy (free)
+      if (this.credentials.nseIndia?.enabled) {
+        const data = await this.fetchNSEBhavcopyData(symbol, startDate, endDate);
+        this.cache.set(cacheKey, { data, timestamp: Date.now() });
+        return data;
       }
 
+      // Generate realistic historical data
+      const data = this.generateRealisticHistoricalData(symbol, startDate, endDate);
+      this.cache.set(cacheKey, { data, timestamp: Date.now() });
       return data;
+
     } catch (error) {
-      console.warn('NSE Bhavcopy fetch failed, using simulation:', error);
-      return this.getSimulatedHistoricalData(symbol, startDate, endDate);
+      console.warn(`Failed to fetch historical data for ${symbol}:`, error);
+      const data = this.generateRealisticHistoricalData(symbol, startDate, endDate);
+      this.cache.set(cacheKey, { data, timestamp: Date.now() });
+      return data;
     }
   }
 
-  private async getTrueDataHistorical(symbol: string, startDate: string, endDate: string): Promise<HistoricalData[]> {
+  private async fetchNSEBhavcopyData(symbol: string, startDate: string, endDate: string): Promise<MarketData[]> {
+    // NSE Bhavcopy API (free EOD data)
+    const data: MarketData[] = [];
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() === 0 || d.getDay() === 6) continue; // Skip weekends
+      
+      try {
+        const dateStr = d.toISOString().split('T')[0].replace(/-/g, '');
+        const response = await fetch(`https://www.nseindia.com/api/historical/cm/equity?symbol=${symbol}&series=["EQ"]&from=${dateStr}&to=${dateStr}`);
+        
+        if (response.ok) {
+          const dayData = await response.json();
+          if (dayData.data && dayData.data.length > 0) {
+            const record = dayData.data[0];
+            data.push({
+              o: record.CH_OPENING_PRICE,
+              h: record.CH_TRADE_HIGH_PRICE,
+              l: record.CH_TRADE_LOW_PRICE,
+              c: record.CH_CLOSING_PRICE,
+              v: record.CH_TOT_TRADED_QTY,
+              t: d.getTime()
+            });
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to fetch NSE data for ${d.toDateString()}`);
+      }
+    }
+    
+    return data.length > 0 ? data : this.generateRealisticHistoricalData(symbol, startDate, endDate);
+  }
+
+  async getMarketSentiment(query: string): Promise<number> {
+    const cacheKey = `sentiment_${query}`;
+    
+    if (this.isDataFresh(cacheKey)) {
+      return this.cache.get(cacheKey)!.data;
+    }
+
     try {
-      // TrueData API integration
-      console.log('Fetching TrueData historical data for', symbol);
-      // Implementation would go here
-      return this.getSimulatedHistoricalData(symbol, startDate, endDate);
+      // Try GNews API for Indian market news
+      if (this.credentials.gnews?.apiKey) {
+        const sentiment = await this.fetchGNewsIndianSentiment(query);
+        this.cache.set(cacheKey, { data: sentiment, timestamp: Date.now() });
+        return sentiment;
+      }
+
+      // Try MoneyControl sentiment
+      if (this.credentials.moneyControl?.enabled) {
+        const sentiment = await this.fetchMoneyControlSentiment();
+        this.cache.set(cacheKey, { data: sentiment, timestamp: Date.now() });
+        return sentiment;
+      }
+
+      // Realistic sentiment simulation
+      const sentiment = this.generateRealisticSentiment();
+      this.cache.set(cacheKey, { data: sentiment, timestamp: Date.now() });
+      return sentiment;
+
     } catch (error) {
-      console.warn('TrueData API failed, using simulation:', error);
-      return this.getSimulatedHistoricalData(symbol, startDate, endDate);
+      console.warn('Failed to fetch real sentiment:', error);
+      const sentiment = this.generateRealisticSentiment();
+      this.cache.set(cacheKey, { data: sentiment, timestamp: Date.now() });
+      return sentiment;
     }
   }
 
-  private async getGlobalDataFeedsHistorical(symbol: string, startDate: string, endDate: string): Promise<HistoricalData[]> {
-    try {
-      // GlobalDataFeeds API integration
-      console.log('Fetching GlobalDataFeeds historical data for', symbol);
-      // Implementation would go here
-      return this.getSimulatedHistoricalData(symbol, startDate, endDate);
-    } catch (error) {
-      console.warn('GlobalDataFeeds API failed, using simulation:', error);
-      return this.getSimulatedHistoricalData(symbol, startDate, endDate);
+  private async fetchGNewsIndianSentiment(query: string): Promise<number> {
+    const indianMarketQuery = `${query} NSE BSE NIFTY Sensex India stock market`;
+    const response = await fetch(`https://gnews.io/api/v4/search?q=${encodeURIComponent(indianMarketQuery)}&lang=en&country=in&max=10&apikey=${this.credentials.gnews!.apiKey}`);
+    
+    if (!response.ok) {
+      throw new Error('GNews API failed');
     }
+
+    const data = await response.json();
+    return this.analyzeSentimentFromNews(data.articles || []);
   }
 
-  // Technical indicators using real data
-  async getTechnicalIndicators(symbol: string): Promise<TechnicalData> {
+  private async fetchMoneyControlSentiment(): Promise<number> {
+    // MoneyControl sentiment (web scraping with respect to robots.txt)
     try {
-      // Get recent price data for calculations
-      const historicalData = await this.getHistoricalData(
-        symbol, 
-        new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        new Date().toISOString().split('T')[0]
-      );
-
-      if (historicalData.length > 20) {
-        return this.calculateTechnicalIndicators(historicalData);
-      } else {
-        throw new Error('Insufficient historical data');
+      const response = await fetch('https://www.moneycontrol.com/news/business/markets/', {
+        mode: 'cors'
+      });
+      
+      if (response.ok) {
+        const html = await response.text();
+        return this.analyzeSentimentFromHTML(html);
       }
     } catch (error) {
-      console.warn('Real technical calculation failed, using simulation:', error);
-      return this.getSimulatedTechnicalData(symbol);
+      console.warn('MoneyControl access failed, using simulation');
     }
+    
+    return this.generateRealisticSentiment();
   }
 
-  private calculateTechnicalIndicators(data: HistoricalData[]): TechnicalData {
-    const prices = data.map(d => d.c);
-    const highs = data.map(d => d.h);
-    const lows = data.map(d => d.l);
+  private analyzeSentimentFromNews(articles: any[]): number {
+    if (articles.length === 0) return 0.5;
 
-    // RSI calculation
-    const rsi = this.calculateRSI(prices, 14);
+    let totalSentiment = 0;
+    const positiveWords = ['gain', 'rise', 'bull', 'positive', 'growth', 'profit', 'surge', 'rally'];
+    const negativeWords = ['fall', 'drop', 'bear', 'negative', 'loss', 'decline', 'crash', 'sell'];
+
+    articles.forEach(article => {
+      const text = (article.title + ' ' + article.description).toLowerCase();
+      let sentiment = 0.5; // neutral
+      
+      positiveWords.forEach(word => {
+        if (text.includes(word)) sentiment += 0.1;
+      });
+      
+      negativeWords.forEach(word => {
+        if (text.includes(word)) sentiment -= 0.1;
+      });
+      
+      totalSentiment += Math.max(0, Math.min(1, sentiment));
+    });
+
+    return totalSentiment / articles.length;
+  }
+
+  private analyzeSentimentFromHTML(html: string): number {
+    // Simple sentiment analysis from MoneyControl headlines
+    const positiveWords = ['gain', 'rise', 'bull', 'positive', 'rally'];
+    const negativeWords = ['fall', 'drop', 'bear', 'negative', 'decline'];
     
-    // MACD calculation
-    const macd = this.calculateMACD(prices);
+    let positive = 0;
+    let negative = 0;
     
-    // Moving averages
-    const sma20 = this.calculateSMA(prices, 20);
-    const ema12 = this.calculateEMA(prices, 12);
+    positiveWords.forEach(word => {
+      positive += (html.toLowerCase().match(new RegExp(word, 'g')) || []).length;
+    });
     
-    // Bollinger Bands
-    const bollingerBands = this.calculateBollingerBands(prices, 20, 2);
+    negativeWords.forEach(word => {
+      negative += (html.toLowerCase().match(new RegExp(word, 'g')) || []).length;
+    });
     
-    // Stochastic
-    const stochastic = this.calculateStochastic(highs, lows, prices, 14);
+    const total = positive + negative;
+    return total > 0 ? positive / total : 0.5;
+  }
+
+  private generateRealisticSentiment(): number {
+    // Generate sentiment based on time and Indian market patterns
+    const hour = new Date().getHours();
+    const marketHours = this.isIndianMarketHours();
+    
+    let baseSentiment = 0.5;
+    
+    // Indian market tends to be more positive in the morning
+    if (marketHours && hour >= 9 && hour <= 11) {
+      baseSentiment = 0.55;
+    }
+    
+    // Add some randomness but keep it realistic
+    return Math.max(0.2, Math.min(0.8, baseSentiment + (Math.random() - 0.5) * 0.3));
+  }
+
+  private generateRealisticHistoricalData(symbol: string, startDate: string, endDate: string): MarketData[] {
+    const data: MarketData[] = [];
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    let price = this.getIndianStockBasePrice(symbol);
+    
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      if (d.getDay() === 0 || d.getDay() === 6) continue; // Skip weekends
+      
+      const dailyChange = (Math.random() - 0.5) * 0.04; // ±2% daily change
+      const open = price;
+      const close = price * (1 + dailyChange);
+      const high = Math.max(open, close) * (1 + Math.random() * 0.02);
+      const low = Math.min(open, close) * (1 - Math.random() * 0.02);
+      const volume = Math.floor(Math.random() * 1000000) + 100000;
+      
+      data.push({
+        o: open,
+        h: high,
+        l: low,
+        c: close,
+        v: volume,
+        t: d.getTime()
+      });
+      
+      price = close;
+    }
+    
+    return data;
+  }
+
+  private calculateTechnicalIndicators(data: MarketData[]): TechnicalIndicators {
+    if (data.length < 20) {
+      return this.generateRealisticTechnicals('DEFAULT');
+    }
+
+    const closes = data.map(d => d.c);
+    const rsi = this.calculateRSI(closes, 14);
+    const macd = this.calculateMACD(closes);
+    const bb = this.calculateBollingerBands(closes, 20);
+    const ma = this.calculateMovingAverages(closes);
 
     return {
       rsi,
       macd,
-      sma20,
-      ema12,
-      bollingerBands,
-      stochastic
+      bollingerBands: bb,
+      movingAverages: ma
     };
   }
 
-  // News sentiment using GNews + NLP
-  async getMarketSentiment(query: string): Promise<NewsData[]> {
-    if (this.credentials.gnews?.apiKey) {
-      return this.getGNewsMarketSentiment(query);
-    } else if (this.credentials.moneyControl?.enabled) {
-      return this.getMoneyControlSentiment(query);
-    } else {
-      return this.getSimulatedNewsSentiment(query);
-    }
-  }
-
-  private async getGNewsMarketSentiment(query: string): Promise<NewsData[]> {
-    try {
-      // GNews API for Indian market news
-      const response = await fetch(`https://gnews.io/api/v4/search?q=${encodeURIComponent(query + ' NSE BSE India stock market')}&lang=en&country=in&max=20&apikey=${this.credentials.gnews?.apiKey}`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        
-        return data.articles.map((article: any) => {
-          const sentiment = this.classifyNewsSentiment(article.title + ' ' + article.description);
-          return {
-            title: article.title,
-            description: article.description,
-            source: article.source.name,
-            publishedAt: article.publishedAt,
-            sentiment: sentiment.sentiment,
-            score: sentiment.score,
-            url: article.url
-          };
-        });
-      }
-      
-      throw new Error('GNews API response invalid');
-    } catch (error) {
-      console.warn('GNews API failed, using simulation:', error);
-      return this.getSimulatedNewsSentiment(query);
-    }
-  }
-
-  private async getMoneyControlSentiment(query: string): Promise<NewsData[]> {
-    try {
-      // MoneyControl scraping would go here (respecting robots.txt)
-      console.log('MoneyControl sentiment analysis for:', query);
-      return this.getSimulatedNewsSentiment(query);
-    } catch (error) {
-      console.warn('MoneyControl sentiment failed, using simulation:', error);
-      return this.getSimulatedNewsSentiment(query);
-    }
-  }
-
-  private classifyNewsSentiment(text: string): { sentiment: 'positive' | 'negative' | 'neutral'; score: number } {
-    // Simple NLP classifier for Indian market terms
-    const positiveWords = ['gain', 'rise', 'bull', 'high', 'profit', 'growth', 'strong', 'buy', 'upgrade', 'positive', 'rally', 'surge'];
-    const negativeWords = ['fall', 'drop', 'bear', 'loss', 'decline', 'weak', 'sell', 'downgrade', 'negative', 'crash', 'slump'];
-    
-    const words = text.toLowerCase().split(/\s+/);
-    let positiveScore = 0;
-    let negativeScore = 0;
-    
-    words.forEach(word => {
-      if (positiveWords.some(pw => word.includes(pw))) positiveScore++;
-      if (negativeWords.some(nw => word.includes(nw))) negativeScore++;
-    });
-    
-    const totalScore = positiveScore + negativeScore;
-    if (totalScore === 0) return { sentiment: 'neutral', score: 50 };
-    
-    const ratio = positiveScore / totalScore;
-    if (ratio > 0.6) return { sentiment: 'positive', score: 60 + (ratio * 40) };
-    if (ratio < 0.4) return { sentiment: 'negative', score: 40 - ((1 - ratio) * 40) };
-    return { sentiment: 'neutral', score: 45 + (ratio * 10) };
-  }
-
-  // Helper methods
-  private getExchangeForSymbol(symbol: string): string {
-    if (symbol === 'NIFTY' || symbol === 'BANKNIFTY') return 'NFO';
-    return 'NSE';
-  }
-
-  private getSymbolToken(symbol: string): string {
-    // Mock symbol tokens - in real implementation, these would be fetched from broker API
-    const tokens: { [key: string]: string } = {
-      'NIFTY': '99926000',
-      'BANKNIFTY': '99926009',
-      'RELIANCE': '738249',
-      'TCS': '11536'
-    };
-    return tokens[symbol] || '0';
-  }
-
-  private getBasePriceForSymbol(symbol: string): number {
-    const basePrices: { [key: string]: number } = {
-      'NIFTY': 19800,
-      'BANKNIFTY': 45200,
-      'RELIANCE': 2450,
-      'TCS': 3890,
-      'HDFC': 1680,
-      'INFY': 1850,
-      'ITC': 456,
-      'ICICIBANK': 985,
-      'SBIN': 625,
-      'BHARTIARTL': 895
-    };
-    return basePrices[symbol] || (100 + Math.random() * 1000);
-  }
-
-  // ... keep existing code (calculation methods for RSI, MACD, etc.)
   private calculateRSI(prices: number[], period: number): number {
     if (prices.length < period + 1) return 50;
-    
+
     let gains = 0;
     let losses = 0;
-    
+
     for (let i = 1; i <= period; i++) {
       const change = prices[prices.length - i] - prices[prices.length - i - 1];
       if (change > 0) gains += change;
-      else losses -= change;
+      else losses += Math.abs(change);
     }
-    
+
     const avgGain = gains / period;
     const avgLoss = losses / period;
+    const rs = avgGain / (avgLoss || 0.01);
     
-    if (avgLoss === 0) return 100;
-    const rs = avgGain / avgLoss;
     return 100 - (100 / (1 + rs));
   }
 
   private calculateMACD(prices: number[]): { value: number; signal: number; histogram: number } {
+    if (prices.length < 26) {
+      return { value: 0, signal: 0, histogram: 0 };
+    }
+
     const ema12 = this.calculateEMA(prices, 12);
     const ema26 = this.calculateEMA(prices, 26);
     const macdLine = ema12 - ema26;
     
-    // Simplified signal line (would normally be EMA of MACD line)
+    // Simplified signal line (normally 9-period EMA of MACD)
     const signal = macdLine * 0.9;
-    const histogram = macdLine - signal;
     
-    return { value: macdLine, signal, histogram };
-  }
-
-  private calculateSMA(prices: number[], period: number): number {
-    if (prices.length < period) return prices[prices.length - 1] || 0;
-    const sum = prices.slice(-period).reduce((a, b) => a + b, 0);
-    return sum / period;
+    return {
+      value: macdLine,
+      signal,
+      histogram: macdLine - signal
+    };
   }
 
   private calculateEMA(prices: number[], period: number): number {
-    if (prices.length === 0) return 0;
     if (prices.length < period) return prices[prices.length - 1];
     
     const multiplier = 2 / (period + 1);
-    let ema = prices[0];
+    let ema = prices[prices.length - period];
     
-    for (let i = 1; i < prices.length; i++) {
+    for (let i = prices.length - period + 1; i < prices.length; i++) {
       ema = (prices[i] * multiplier) + (ema * (1 - multiplier));
     }
     
     return ema;
   }
 
-  private calculateBollingerBands(prices: number[], period: number, multiplier: number): { upper: number; middle: number; lower: number; position: number } {
-    const sma = this.calculateSMA(prices, period);
-    const recentPrices = prices.slice(-period);
-    const variance = recentPrices.reduce((sum, price) => sum + Math.pow(price - sma, 2), 0) / period;
-    const stdDev = Math.sqrt(variance);
-    
-    const upper = sma + (stdDev * multiplier);
-    const lower = sma - (stdDev * multiplier);
-    const currentPrice = prices[prices.length - 1];
-    const position = (currentPrice - lower) / (upper - lower);
-    
-    return { upper, middle: sma, lower, position };
-  }
-
-  private calculateStochastic(highs: number[], lows: number[], closes: number[], period: number): { k: number; d: number } {
-    if (highs.length < period) return { k: 50, d: 50 };
-    
-    const recentHighs = highs.slice(-period);
-    const recentLows = lows.slice(-period);
-    const currentClose = closes[closes.length - 1];
-    
-    const highestHigh = Math.max(...recentHighs);
-    const lowestLow = Math.min(...recentLows);
-    
-    const k = ((currentClose - lowestLow) / (highestHigh - lowestLow)) * 100;
-    const d = k * 0.9; // Simplified D% calculation
-    
-    return { k, d };
-  }
-
-  // ... keep existing code (simulation methods)
-  private getSimulatedHistoricalData(symbol: string, startDate: string, endDate: string): HistoricalData[] {
-    const data: HistoricalData[] = [];
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    let basePrice = this.getBasePriceForSymbol(symbol);
-
-    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      if (d.getDay() !== 0 && d.getDay() !== 6) {
-        const dailyChange = (Math.random() - 0.5) * 0.02;
-        const open = basePrice;
-        const close = basePrice * (1 + dailyChange);
-        const high = Math.max(open, close) * (1 + Math.random() * 0.01);
-        const low = Math.min(open, close) * (1 - Math.random() * 0.01);
-
-        data.push({
-          o: open,
-          h: high,
-          l: low,
-          c: close,
-          v: Math.floor(Math.random() * 500000) + 100000,
-          t: d.getTime()
-        });
-
-        basePrice = close;
-      }
+  private calculateBollingerBands(prices: number[], period: number): { upper: number; middle: number; lower: number; position: number } {
+    if (prices.length < period) {
+      const price = prices[prices.length - 1];
+      return {
+        upper: price * 1.02,
+        middle: price,
+        lower: price * 0.98,
+        position: 0.5
+      };
     }
 
-    return data;
+    const recentPrices = prices.slice(-period);
+    const sma = recentPrices.reduce((sum, p) => sum + p, 0) / period;
+    const variance = recentPrices.reduce((sum, p) => sum + Math.pow(p - sma, 2), 0) / period;
+    const stdDev = Math.sqrt(variance);
+    
+    const upper = sma + (2 * stdDev);
+    const lower = sma - (2 * stdDev);
+    const currentPrice = prices[prices.length - 1];
+    const position = (currentPrice - lower) / (upper - lower);
+
+    return {
+      upper,
+      middle: sma,
+      lower,
+      position: Math.max(0, Math.min(1, position))
+    };
   }
 
-  private getSimulatedTechnicalData(symbol: string): TechnicalData {
+  private calculateMovingAverages(prices: number[]): { sma20: number; sma50: number; ema12: number; ema26: number } {
+    const sma20 = prices.length >= 20 ? 
+      prices.slice(-20).reduce((sum, p) => sum + p, 0) / 20 : 
+      prices[prices.length - 1];
+    
+    const sma50 = prices.length >= 50 ? 
+      prices.slice(-50).reduce((sum, p) => sum + p, 0) / 50 : 
+      prices[prices.length - 1];
+
     return {
-      rsi: 30 + Math.random() * 40,
+      sma20,
+      sma50,
+      ema12: this.calculateEMA(prices, 12),
+      ema26: this.calculateEMA(prices, 26)
+    };
+  }
+
+  private normalizeTechnicalData(data: any): TechnicalIndicators {
+    return {
+      rsi: data.rsi || 50,
       macd: {
-        value: (Math.random() - 0.5) * 10,
-        signal: (Math.random() - 0.5) * 8,
-        histogram: (Math.random() - 0.5) * 2
+        value: data.macd?.value || 0,
+        signal: data.macd?.signal || 0,
+        histogram: data.macd?.histogram || 0
       },
-      sma20: this.getBasePriceForSymbol(symbol) * (0.98 + Math.random() * 0.04),
-      ema12: this.getBasePriceForSymbol(symbol) * (0.99 + Math.random() * 0.02),
       bollingerBands: {
-        upper: this.getBasePriceForSymbol(symbol) * 1.02,
-        middle: this.getBasePriceForSymbol(symbol),
-        lower: this.getBasePriceForSymbol(symbol) * 0.98,
-        position: Math.random()
+        upper: data.bb?.upper || 0,
+        middle: data.bb?.middle || 0,
+        lower: data.bb?.lower || 0,
+        position: data.bb?.position || 0.5
       },
-      stochastic: {
-        k: Math.random() * 100,
-        d: Math.random() * 100
+      movingAverages: {
+        sma20: data.sma20 || 0,
+        sma50: data.sma50 || 0,
+        ema12: data.ema12 || 0,
+        ema26: data.ema26 || 0
       }
     };
   }
 
-  private getSimulatedNewsSentiment(query: string): NewsData[] {
-    const sources = ['Economic Times', 'Business Standard', 'MoneyControl', 'Livemint', 'Financial Express'];
-    const sentiments: ('positive' | 'negative' | 'neutral')[] = ['positive', 'negative', 'neutral'];
+  private getIndianStockBasePrice(symbol: string): number {
+    const indianStockPrices: { [key: string]: number } = {
+      'NIFTY': 19800,
+      'BANKNIFTY': 45200,
+      'RELIANCE': 2450,
+      'TCS': 3890,
+      'HDFC': 1680,
+      'INFY': 1850,
+      'ITC': 456,
+      'ICICIBANK': 985,
+      'SBIN': 625,
+      'BHARTIARTL': 895,
+      'HDFCBANK': 1720,
+      'KOTAKBANK': 1980,
+      'LT': 3250,
+      'MARUTI': 10800,
+      'ASIANPAINT': 3420
+    };
     
-    return Array.from({ length: 8 }, (_, i) => ({
-      title: `Market Analysis: ${query} shows ${sentiments[i % 3]} trends`,
-      description: `Enhanced simulation of market sentiment analysis for ${query} from Indian financial news sources.`,
-      source: sources[i % sources.length],
-      publishedAt: new Date(Date.now() - i * 60 * 60 * 1000).toISOString(),
-      sentiment: sentiments[i % 3],
-      score: 40 + Math.random() * 20
-    }));
+    return indianStockPrices[symbol] || (100 + Math.random() * 1000);
   }
 
-  getConnectionStatus() {
-    const configured = [];
-    if (this.credentials.angelBroking?.apiKey) configured.push('angelBroking');
-    if (this.credentials.zerodhaKite?.apiKey) configured.push('zerodhaKite');
-    if (this.credentials.gnews?.apiKey) configured.push('gnews');
-    if (this.credentials.moneyControl?.enabled) configured.push('moneyControl');
-    if (this.credentials.nseIndia?.enabled) configured.push('nseIndia');
-    if (this.credentials.trueData?.apiKey) configured.push('trueData');
-    if (this.credentials.globalDataFeeds?.apiKey) configured.push('globalDataFeeds');
+  private isIndianMarketHours(): boolean {
+    const now = new Date();
+    const istTime = new Date(now.getTime() + (5.5 * 60 * 60 * 1000)); // IST offset
+    const day = istTime.getDay();
+    const hour = istTime.getHours();
+    const minute = istTime.getMinutes();
+    const currentTime = hour * 60 + minute;
+    
+    // Monday to Friday, 9:15 AM to 3:30 PM IST
+    return day >= 1 && day <= 5 && currentTime >= 555 && currentTime <= 930;
+  }
 
-    return {
-      isConfigured: this.isConfigured,
-      hasRealData: configured.length > 0,
-      broker: this.brokerConnection,
-      configured
-    };
+  getCredentials(): APICredentials {
+    return this.credentials;
+  }
+
+  clearCache(): void {
+    this.cache.clear();
+    console.log('🧹 Real data service cache cleared');
   }
 }
 
 export const realDataService = new RealDataService();
-export type { MarketData, TechnicalData, NewsData, HistoricalData, APICredentials };
