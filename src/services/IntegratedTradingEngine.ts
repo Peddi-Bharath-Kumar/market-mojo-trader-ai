@@ -124,7 +124,11 @@ export class IntegratedTradingEngine {
       // Get real technical data
       const technicalData = await realDataService.getTechnicalIndicators(baseSignal.symbol);
       const priceData = await realDataService.getRealTimePrice(baseSignal.symbol);
-      const sentiment = await realDataService.getMarketSentiment(`${baseSignal.symbol} stock`);
+      const sentimentData = await realDataService.getMarketSentiment(`${baseSignal.symbol} stock`);
+      
+      // Calculate sentiment score from news data
+      const sentimentScore = sentimentData.length > 0 ? 
+        sentimentData.reduce((sum, news) => sum + news.score, 0) / sentimentData.length / 100 : 0.5;
       
       // Calculate enhanced confidence based on real data confluence
       let enhancedConfidence = baseSignal.confidence;
@@ -155,9 +159,9 @@ export class IntegratedTradingEngine {
       }
       
       // Sentiment confirmation
-      if ((baseSignal.action === 'buy' && sentiment > 0.6) || (baseSignal.action === 'sell' && sentiment < 0.4)) {
+      if ((baseSignal.action === 'buy' && sentimentScore > 0.6) || (baseSignal.action === 'sell' && sentimentScore < 0.4)) {
         confidenceBoost += 0.1;
-        reasons.push(`Market sentiment ${sentiment > 0.5 ? 'positive' : 'negative'}`);
+        reasons.push(`Market sentiment ${sentimentScore > 0.5 ? 'positive' : 'negative'}`);
       }
       
       enhancedConfidence = Math.min(0.95, enhancedConfidence + confidenceBoost);
@@ -170,7 +174,7 @@ export class IntegratedTradingEngine {
         signalScore: enhancedTradingEngine.calculateSignalScore({
           technicalScore: Math.min(40, confidenceBoost * 200),
           volumeScore: priceData.volume > 500000 ? 20 : 10,
-          sentimentScore: Math.abs(sentiment - 0.5) * 40,
+          sentimentScore: Math.abs(sentimentScore - 0.5) * 40,
           volatilityScore: 15
         }),
         dataSource: 'real_api',
@@ -359,7 +363,9 @@ export class IntegratedTradingEngine {
     try {
       const niftyTechnicals = await realDataService.getTechnicalIndicators('NIFTY');
       const niftyPrice = await realDataService.getRealTimePrice('NIFTY');
-      const marketSentiment = await realDataService.getMarketSentiment('NIFTY stock market');
+      const sentimentData = await realDataService.getMarketSentiment('NIFTY stock market');
+      const marketSentiment = sentimentData.length > 0 ? 
+        sentimentData.reduce((sum, news) => sum + news.score, 0) / sentimentData.length / 100 : 0.5;
       
       return {
         technicals: niftyTechnicals,
