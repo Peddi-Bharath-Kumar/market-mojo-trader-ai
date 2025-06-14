@@ -63,7 +63,7 @@ export const EnhancedAPIConfiguration: React.FC<EnhancedAPIConfigurationProps> =
       // Test data APIs
       const testPromises = [];
       
-      if (enabledServices.technicalData && dataCredentials.gNews?.apiKey) {
+      if (enabledServices.technicalData && dataCredentials.gnews?.apiKey) {
         testPromises.push(
           realDataService.getTechnicalIndicators('NIFTY')
             .then(() => console.log('✅ Technical data API working'))
@@ -71,7 +71,7 @@ export const EnhancedAPIConfiguration: React.FC<EnhancedAPIConfigurationProps> =
         );
       }
 
-      if (enabledServices.priceData && dataCredentials.nseBhavcopy?.enabled) {
+      if (enabledServices.priceData && dataCredentials.nseBhavCopy?.enabled) {
         testPromises.push(
           realDataService.getRealTimePrice('NIFTY')
             .then(() => console.log('✅ Price data API working'))
@@ -79,7 +79,7 @@ export const EnhancedAPIConfiguration: React.FC<EnhancedAPIConfigurationProps> =
         );
       }
 
-      if (enabledServices.newsData && dataCredentials.gNews?.apiKey) {
+      if (enabledServices.newsData && dataCredentials.gnews?.apiKey) {
         testPromises.push(
           realDataService.getMarketSentiment('stock market')
             .then(() => console.log('✅ News sentiment API working'))
@@ -232,8 +232,8 @@ export const EnhancedAPIConfiguration: React.FC<EnhancedAPIConfigurationProps> =
                       </p>
                       <div className="flex items-center space-x-2">
                         <Switch
-                          checked={dataCredentials.nseBhavcopy?.enabled || false}
-                          onCheckedChange={(checked) => updateDataCredential('nseBhavcopy', 'enabled', checked)}
+                          checked={dataCredentials.nseBhavCopy?.enabled || false}
+                          onCheckedChange={(checked) => updateDataCredential('nseBhavCopy', 'enabled', checked)}
                         />
                         <span className="text-sm">Enable NSE Bhavcopy</span>
                       </div>
@@ -284,8 +284,8 @@ export const EnhancedAPIConfiguration: React.FC<EnhancedAPIConfigurationProps> =
                       </p>
                       <div className="flex items-center space-x-2">
                         <Switch
-                          checked={dataCredentials.brokerRealtime?.enabled || false}
-                          onCheckedChange={(checked) => updateDataCredential('brokerRealtime', 'enabled', checked)}
+                          checked={dataCredentials.broker?.realtimeEnabled || false}
+                          onCheckedChange={(checked) => updateDataCredential('broker', 'realtimeEnabled', checked)}
                         />
                         <span className="text-sm">Enable Broker Real-time Data</span>
                       </div>
@@ -300,8 +300,8 @@ export const EnhancedAPIConfiguration: React.FC<EnhancedAPIConfigurationProps> =
                       </p>
                       <Input
                         type={showSecrets ? 'text' : 'password'}
-                        value={dataCredentials.globalData?.apiKey || ''}
-                        onChange={(e) => updateDataCredential('globalData', 'apiKey', e.target.value)}
+                        value={dataCredentials.globalDataFeeds?.apiKey || ''}
+                        onChange={(e) => updateDataCredential('globalDataFeeds', 'apiKey', e.target.value)}
                         placeholder="Your GlobalDataFeeds API key"
                       />
                     </CardContent>
@@ -336,8 +336,8 @@ export const EnhancedAPIConfiguration: React.FC<EnhancedAPIConfigurationProps> =
                       </p>
                       <Input
                         type={showSecrets ? 'text' : 'password'}
-                        value={dataCredentials.gNews?.apiKey || ''}
-                        onChange={(e) => updateDataCredential('gNews', 'apiKey', e.target.value)}
+                        value={dataCredentials.gnews?.apiKey || ''}
+                        onChange={(e) => updateDataCredential('gnews', 'apiKey', e.target.value)}
                         placeholder="Your GNews API key"
                       />
                     </CardContent>
