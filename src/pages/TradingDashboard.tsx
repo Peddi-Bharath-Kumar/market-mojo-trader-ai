@@ -12,14 +12,30 @@ import { BacktestPanel } from '@/components/trading/BacktestPanel';
 import { RiskManagement } from '@/components/trading/RiskManagement';
 import { PerformanceMonitor } from '@/components/trading/PerformanceMonitor';
 import { APIConfiguration } from '@/components/trading/APIConfiguration';
+import { VirtualTradingMode } from '@/components/trading/VirtualTradingMode';
+import { OptionsGreeksPanel } from '@/components/trading/OptionsGreeksPanel';
 import { useToast } from '@/hooks/use-toast';
+import { marketDataService } from '@/services/MarketDataService';
 
 const TradingDashboard = () => {
   const [isTrading, setIsTrading] = useState(false);
+  const [isVirtualTrading, setIsVirtualTrading] = useState(false);
   const [apiConfigured, setApiConfigured] = useState(false);
   const [currentProfit, setCurrentProfit] = useState(0);
   const [dailyTarget] = useState(2); // 2% daily target
   const { toast } = useToast();
+
+  // Set API config when configured
+  useEffect(() => {
+    if (apiConfigured) {
+      // This would normally be set from the API configuration
+      marketDataService.setApiConfig({
+        broker: 'zerodha', // This should come from actual config
+        apiKey: 'configured',
+        apiSecret: 'configured'
+      });
+    }
+  }, [apiConfigured]);
 
   const handleStartTrading = () => {
     if (!apiConfigured) {
@@ -33,16 +49,26 @@ const TradingDashboard = () => {
     
     setIsTrading(true);
     toast({
-      title: "Trading Started",
-      description: "Automated trading agent is now active",
+      title: "Live Trading Started",
+      description: "Automated trading agent is now active with real money",
     });
   };
 
   const handleStopTrading = () => {
     setIsTrading(false);
     toast({
-      title: "Trading Stopped",
+      title: "Live Trading Stopped",
       description: "Automated trading agent has been stopped",
+    });
+  };
+
+  const handleEmergencyStop = () => {
+    setIsTrading(false);
+    setIsVirtualTrading(false);
+    toast({
+      title: "Emergency Stop Activated",
+      description: "All trading activities have been immediately stopped",
+      variant: "destructive"
     });
   };
 
@@ -51,14 +77,14 @@ const TradingDashboard = () => {
       <div className="max-w-7xl mx-auto">
         <div className="mb-6">
           <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            AI Trading Agent
+            Professional AI Trading Agent
           </h1>
           <p className="text-gray-600">
-            Automated trading with sentiment analysis, technical indicators, and risk management
+            Advanced trading with Options Greeks, real-time data, sentiment analysis, and risk management
           </p>
         </div>
 
-        {/* Control Panel */}
+        {/* Enhanced Control Panel */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
@@ -74,27 +100,42 @@ const TradingDashboard = () => {
                     {currentProfit.toFixed(2)}%
                   </span>
                 </div>
-                <div className={`h-3 w-3 rounded-full ${isTrading ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                <div className="flex items-center gap-2">
+                  <div className={`h-3 w-3 rounded-full ${isTrading ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                  <span className="text-sm">Live</span>
+                  <div className={`h-3 w-3 rounded-full ${isVirtualTrading ? 'bg-blue-500' : 'bg-gray-400'}`}></div>
+                  <span className="text-sm">Virtual</span>
+                </div>
               </div>
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-4">
+            <div className="flex gap-4 flex-wrap">
               <Button 
                 onClick={handleStartTrading} 
-                disabled={isTrading}
+                disabled={isTrading || !apiConfigured}
                 className="bg-green-600 hover:bg-green-700"
               >
-                Start Trading
+                Start Live Trading
               </Button>
               <Button 
                 onClick={handleStopTrading} 
                 disabled={!isTrading}
+                variant="outline"
+              >
+                Stop Live Trading
+              </Button>
+              <Button 
+                onClick={() => setIsVirtualTrading(!isVirtualTrading)}
+                variant={isVirtualTrading ? "default" : "outline"}
+                className={isVirtualTrading ? "bg-blue-600 hover:bg-blue-700" : ""}
+              >
+                {isVirtualTrading ? 'Stop' : 'Start'} Virtual Trading
+              </Button>
+              <Button 
+                onClick={handleEmergencyStop}
                 variant="destructive"
               >
-                Stop Trading
-              </Button>
-              <Button variant="outline">
                 Emergency Stop
               </Button>
             </div>
@@ -102,9 +143,11 @@ const TradingDashboard = () => {
         </Card>
 
         <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4 lg:grid-cols-8">
+          <TabsList className="grid w-full grid-cols-5 lg:grid-cols-10">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="virtual">Virtual</TabsTrigger>
             <TabsTrigger value="market">Market Data</TabsTrigger>
+            <TabsTrigger value="options">Options</TabsTrigger>
             <TabsTrigger value="sentiment">Sentiment</TabsTrigger>
             <TabsTrigger value="technical">Technical</TabsTrigger>
             <TabsTrigger value="strategy">Strategy</TabsTrigger>
@@ -120,8 +163,19 @@ const TradingDashboard = () => {
             </div>
           </TabsContent>
 
+          <TabsContent value="virtual">
+            <VirtualTradingMode 
+              isActive={isVirtualTrading} 
+              onToggle={setIsVirtualTrading} 
+            />
+          </TabsContent>
+
           <TabsContent value="market">
-            <MarketDataPanel />
+            <MarketDataPanel apiConfigured={apiConfigured} />
+          </TabsContent>
+
+          <TabsContent value="options">
+            <OptionsGreeksPanel />
           </TabsContent>
 
           <TabsContent value="sentiment">
