@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -42,6 +41,14 @@ export const RealTechnicalAnalysis = () => {
       const connectionStatus = realDataService.getConnectionStatus();
       setHasRealData(connectionStatus.hasRealData);
 
+      // Get current price for Bollinger Bands position calculation
+      const priceData = await realDataService.getRealTimePrice(selectedSymbol);
+      const currentPrice = priceData.price;
+
+      // Calculate Bollinger Bands position (0 = at lower band, 1 = at upper band)
+      const bbRange = data.bollingerBands.upper - data.bollingerBands.lower;
+      const bbPosition = bbRange > 0 ? (currentPrice - data.bollingerBands.lower) / bbRange : 0.5;
+
       // Generate signals based on real data
       const newSignals: TechnicalSignal[] = [
         {
@@ -62,7 +69,7 @@ export const RealTechnicalAnalysis = () => {
         },
         {
           indicator: 'SMA (20)',
-          value: data.sma20.toFixed(2),
+          value: data.sma.toFixed(2),
           signal: 'hold', // Would need current price to determine
           strength: 60,
           description: '20-period Simple Moving Average',
@@ -70,7 +77,7 @@ export const RealTechnicalAnalysis = () => {
         },
         {
           indicator: 'EMA (12)',
-          value: data.ema12.toFixed(2),
+          value: data.ema.toFixed(2),
           signal: 'hold',
           strength: 65,
           description: '12-period Exponential Moving Average',
@@ -78,10 +85,10 @@ export const RealTechnicalAnalysis = () => {
         },
         {
           indicator: 'Bollinger Bands',
-          value: `${data.bollingerBands.position.toFixed(2)}`,
-          signal: data.bollingerBands.position < 0.2 ? 'buy' : data.bollingerBands.position > 0.8 ? 'sell' : 'hold',
-          strength: data.bollingerBands.position < 0.2 || data.bollingerBands.position > 0.8 ? 80 : 50,
-          description: `Price is ${(data.bollingerBands.position * 100).toFixed(1)}% through BB range`,
+          value: `${(bbPosition * 100).toFixed(1)}%`,
+          signal: bbPosition < 0.2 ? 'buy' : bbPosition > 0.8 ? 'sell' : 'hold',
+          strength: bbPosition < 0.2 || bbPosition > 0.8 ? 80 : 50,
+          description: `Price is ${(bbPosition * 100).toFixed(1)}% through BB range`,
           isRealData: connectionStatus.configured.includes('alphaVantage') || connectionStatus.configured.includes('trueData')
         },
         {
@@ -287,9 +294,9 @@ export const RealTechnicalAnalysis = () => {
                     </div>
                   </div>
                   <div>
-                    <span className="text-gray-600">BB Position:</span>
+                    <span className="text-gray-600">BB Range:</span>
                     <div className="font-medium text-blue-600">
-                      {(technicalData.bollingerBands.position * 100).toFixed(1)}%
+                      {technicalData.bollingerBands.lower.toFixed(2)} - {technicalData.bollingerBands.upper.toFixed(2)}
                     </div>
                   </div>
                   <div>
