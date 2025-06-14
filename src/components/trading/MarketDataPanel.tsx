@@ -224,7 +224,7 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
                 </div>
               </div>
             </div>
-          </div>
+          </CardContent>
         </Card>
       )}
     </div>
