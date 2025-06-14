@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -71,7 +70,7 @@ export const EnhancedAPIConfiguration: React.FC<EnhancedAPIConfigurationProps> =
         );
       }
 
-      if (enabledServices.priceData && dataCredentials.nseBhavCopy?.enabled) {
+      if (enabledServices.priceData && dataCredentials.moneyControl?.enabled) {
         testPromises.push(
           realDataService.getRealTimePrice('NIFTY')
             .then(() => console.log('✅ Price data API working'))
@@ -232,8 +231,8 @@ export const EnhancedAPIConfiguration: React.FC<EnhancedAPIConfigurationProps> =
                       </p>
                       <div className="flex items-center space-x-2">
                         <Switch
-                          checked={dataCredentials.nseBhavCopy?.enabled || false}
-                          onCheckedChange={(checked) => updateDataCredential('nseBhavCopy', 'enabled', checked)}
+                          checked={dataCredentials.moneyControl?.enabled || false}
+                          onCheckedChange={(checked) => updateDataCredential('moneyControl', 'enabled', checked)}
                         />
                         <span className="text-sm">Enable NSE Bhavcopy</span>
                       </div>
@@ -284,8 +283,8 @@ export const EnhancedAPIConfiguration: React.FC<EnhancedAPIConfigurationProps> =
                       </p>
                       <div className="flex items-center space-x-2">
                         <Switch
-                          checked={dataCredentials.broker?.realtimeEnabled || false}
-                          onCheckedChange={(checked) => updateDataCredential('broker', 'realtimeEnabled', checked)}
+                          checked={dataCredentials.moneyControl?.enabled || false}
+                          onCheckedChange={(checked) => updateDataCredential('moneyControl', 'enabled', checked)}
                         />
                         <span className="text-sm">Enable Broker Real-time Data</span>
                       </div>
