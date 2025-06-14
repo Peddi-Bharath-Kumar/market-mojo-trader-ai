@@ -202,7 +202,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                     type={showSecrets ? 'text' : 'password'}
                     value={config.apiKey}
                     onChange={(e) => setConfig(prev => ({ ...prev, apiKey: e.target.value }))}
-                    placeholder={config.broker === 'angel' ? 'Your client ID' : 'Enter your API key'}
+                    placeholder={config.broker === 'angel' ? 'Your client ID or API key' : 'Enter your API key'}
                   />
                 </div>
 
@@ -215,7 +215,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                     type={showSecrets ? 'text' : 'password'}
                     value={config.apiSecret}
                     onChange={(e) => setConfig(prev => ({ ...prev, apiSecret: e.target.value }))}
-                    placeholder={config.broker === 'angel' ? 'Your MPIN' : 'Enter your API secret'}
+                    placeholder={config.broker === 'angel' ? 'Your MPIN or password' : 'Enter your API secret'}
                   />
                 </div>
 
@@ -300,8 +300,8 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                 {config.broker === 'angel' ? (
                   <>
                     <div>1. Login to Angel Broking SmartAPI portal</div>
-                    <div>2. Create API App and get Client ID</div>
-                    <div>3. Use your Client ID as API Key and MPIN as API Secret</div>
+                    <div>2. Create API App and get Client ID & API Key</div>
+                    <div>3. Use your API Key (8+ chars) and MPIN/Password</div>
                     <div>4. Test connection to enable real-time data</div>
                   </>
                 ) : (
@@ -321,20 +321,32 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
   );
 };
 
-// Simulate broker API testing
+// Simulate broker API testing with updated validation
 async function simulateBrokerAPITest(config: BrokerConfig): Promise<{success: boolean, error?: string}> {
   console.log(`Testing ${config.broker} API...`);
   
   // Simulate API call delay
   await new Promise(resolve => setTimeout(resolve, 2000));
   
-  // Basic validation
-  if (config.apiKey.length < 10) {
-    return { success: false, error: 'API Key appears to be too short' };
-  }
-  
-  if (config.apiSecret.length < 5) {
-    return { success: false, error: 'API Secret appears to be too short' };
+  // Updated validation for Angel Broking
+  if (config.broker === 'angel') {
+    // Angel Broking API keys can be 8+ characters
+    if (config.apiKey.length < 6) {
+      return { success: false, error: 'API Key appears to be too short for Angel Broking' };
+    }
+    
+    if (config.apiSecret.length < 3) {
+      return { success: false, error: 'MPIN/Password appears to be too short' };
+    }
+  } else {
+    // Other brokers validation
+    if (config.apiKey.length < 10) {
+      return { success: false, error: 'API Key appears to be too short' };
+    }
+    
+    if (config.apiSecret.length < 5) {
+      return { success: false, error: 'API Secret appears to be too short' };
+    }
   }
   
   // 90% success rate for demo purposes
