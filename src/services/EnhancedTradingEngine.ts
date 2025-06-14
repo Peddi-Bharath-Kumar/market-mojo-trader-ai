@@ -1,4 +1,5 @@
 import { TradingSignal } from './TradingRobotEngine';
+import { realDataService } from './RealDataService';
 
 export interface SignalScore {
   technicalScore: number;
@@ -87,6 +88,30 @@ export class EnhancedTradingEngine {
 
     console.log(`📊 Market Regime Detected: ${regimeType} (Strength: ${(strength * 100).toFixed(1)}%)`);
     return this.marketRegime;
+  }
+
+  public async analyzeMarketRegimeWithRealData(symbol: string = 'NIFTY'): Promise<MarketRegime> {
+    try {
+      // Get real historical data for regime analysis
+      const endDate = new Date().toISOString().split('T')[0];
+      const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      
+      const historicalData = await realDataService.getHistoricalData(symbol, startDate, endDate);
+      
+      if (historicalData.length > 0) {
+        const prices = historicalData.map(d => d.c); // closing prices
+        const volumes = historicalData.map(d => d.v); // volumes
+        
+        console.log(`📊 Analyzing market regime with ${prices.length} real data points for ${symbol}`);
+        return this.analyzeMarketRegime(prices, volumes);
+      } else {
+        console.warn('No real historical data available, using simulation');
+        return this.analyzeMarketRegime(this.generateMockPrices(), this.generateMockVolumes());
+      }
+    } catch (error) {
+      console.error('Failed to get real data for regime analysis:', error);
+      return this.analyzeMarketRegime(this.generateMockPrices(), this.generateMockVolumes());
+    }
   }
 
   private calculateHurstExponent(prices: number[]): number {
@@ -318,36 +343,161 @@ export class EnhancedTradingEngine {
   }
 
   public generateEnhancedSignals(): TradingSignal[] {
+    // This method is kept for backward compatibility
+    // The real implementation should use generateEnhancedSignalsWithRealData
+    return this.generateEnhancedSignalsWithRealData().catch(() => {
+      console.warn('Real data generation failed, using mock signals');
+      const signals: TradingSignal[] = [];
+      const mockSymbols = ['NIFTY', 'BANKNIFTY', 'RELIANCE', 'TCS', 'INFY'];
+      
+      mockSymbols.forEach(symbol => {
+        if (Math.random() > 0.7) {
+          signals.push(this.generateMockSignal(symbol));
+        }
+      });
+      
+      return signals;
+    }) as any; // Type assertion for compatibility
+  }
+
+  public generateEnhancedSignalsWithRealData(): Promise<TradingSignal[]> {
     const signals: TradingSignal[] = [];
+    const symbols = ['NIFTY', 'BANKNIFTY', 'RELIANCE', 'TCS', 'INFY'];
     
-    // Mock signal generation based on current market regime
-    const mockSymbols = ['NIFTY', 'BANKNIFTY', 'RELIANCE', 'TCS', 'INFY'];
+    console.log('🎯 Generating enhanced signals with real market data...');
     
-    mockSymbols.forEach(symbol => {
-      // Generate random signal for demonstration
-      if (Math.random() > 0.7) { // 30% chance of signal
-        const action = Math.random() > 0.5 ? 'buy' : 'sell';
-        const price = 100 + Math.random() * 400; // Mock price
+    for (const symbol of symbols) {
+      try {
+        // Get real technical data
+        const technicalData = await realDataService.getTechnicalIndicators(symbol);
+        const priceData = await realDataService.getRealTimePrice(symbol);
         
-        const signal: TradingSignal = {
-          symbol,
-          action,
-          orderType: 'limit',
-          quantity: Math.floor(Math.random() * 100) + 10,
-          price,
-          confidence: 0.6 + Math.random() * 0.3, // 60-90% confidence
-          reason: `Enhanced ${action} signal based on market regime analysis`,
-          strategy: 'Enhanced Market Regime',
-          target: action === 'buy' ? price * 1.02 : price * 0.98,
-          stopLoss: action === 'buy' ? price * 0.98 : price * 1.02
-        };
+        // Enhanced signal generation based on real data
+        const signal = this.generateSignalFromRealData(symbol, technicalData, priceData);
         
-        signals.push(signal);
+        if (signal) {
+          signals.push(signal);
+          console.log(`📈 Generated real data signal for ${symbol}: ${signal.action.toUpperCase()}`);
+        }
+      } catch (error) {
+        console.warn(`Failed to generate real signal for ${symbol}, using simulation:`, error);
+        // Fallback to existing mock signal generation
+        if (Math.random() > 0.7) {
+          const mockSignal = this.generateMockSignal(symbol);
+          signals.push(mockSignal);
+        }
       }
-    });
+    }
     
-    console.log(`🎯 Generated ${signals.length} enhanced signals`);
+    console.log(`🎯 Generated ${signals.length} enhanced signals (real + simulated)`);
     return signals;
+  }
+
+  private generateSignalFromRealData(symbol: string, technicalData: any, priceData: any): TradingSignal | null {
+    let signalStrength = 0;
+    let action: 'buy' | 'sell' | null = null;
+    const reasons: string[] = [];
+
+    // RSI Analysis
+    if (technicalData.rsi < 30) {
+      signalStrength += 25;
+      action = 'buy';
+      reasons.push(`RSI oversold (${technicalData.rsi.toFixed(1)})`);
+    } else if (technicalData.rsi > 70) {
+      signalStrength += 25;
+      action = 'sell';
+      reasons.push(`RSI overbought (${technicalData.rsi.toFixed(1)})`);
+    }
+
+    // MACD Analysis
+    if (technicalData.macd.value > technicalData.macd.signal) {
+      signalStrength += 20;
+      if (!action) action = 'buy';
+      reasons.push('MACD bullish crossover');
+    } else if (technicalData.macd.value < technicalData.macd.signal) {
+      signalStrength += 20;
+      if (!action) action = 'sell';
+      reasons.push('MACD bearish crossover');
+    }
+
+    // Bollinger Bands Analysis
+    if (technicalData.bollingerBands.position < 0.2) {
+      signalStrength += 15;
+      if (!action) action = 'buy';
+      reasons.push('Price near lower Bollinger Band');
+    } else if (technicalData.bollingerBands.position > 0.8) {
+      signalStrength += 15;
+      if (!action) action = 'sell';
+      reasons.push('Price near upper Bollinger Band');
+    }
+
+    // Volume confirmation
+    if (priceData.volume > 500000) { // High volume
+      signalStrength += 10;
+      reasons.push('High volume confirmation');
+    }
+
+    // Only generate signal if strength is sufficient
+    if (signalStrength >= 30 && action) {
+      const confidence = Math.min(0.95, signalStrength / 100);
+      
+      return {
+        symbol,
+        action,
+        orderType: 'limit',
+        quantity: this.calculatePositionSize(symbol, priceData.price, confidence),
+        price: priceData.price,
+        confidence,
+        reason: `Real data analysis: ${reasons.join(', ')}`,
+        strategy: 'Enhanced Real Data Analysis',
+        target: action === 'buy' ? priceData.price * 1.02 : priceData.price * 0.98,
+        stopLoss: action === 'buy' ? priceData.price * 0.98 : priceData.price * 1.02
+      };
+    }
+
+    return null;
+  }
+
+  private calculatePositionSize(symbol: string, price: number, confidence: number): number {
+    const baseAmount = 10000; // ₹10,000 per trade
+    const confidenceMultiplier = confidence;
+    const positionValue = baseAmount * confidenceMultiplier;
+    
+    return Math.max(1, Math.floor(positionValue / price));
+  }
+
+  private generateMockSignal(symbol: string): TradingSignal {
+    const action = Math.random() > 0.5 ? 'buy' : 'sell';
+    const price = 100 + Math.random() * 400;
+    
+    return {
+      symbol,
+      action,
+      orderType: 'limit',
+      quantity: Math.floor(Math.random() * 100) + 10,
+      price,
+      confidence: 0.6 + Math.random() * 0.3,
+      reason: `Mock ${action} signal for simulation`,
+      strategy: 'Enhanced Market Simulation',
+      target: action === 'buy' ? price * 1.02 : price * 0.98,
+      stopLoss: action === 'buy' ? price * 0.98 : price * 1.02
+    };
+  }
+
+  private generateMockPrices(): number[] {
+    const prices = [];
+    let price = 19800; // Starting NIFTY price
+    
+    for (let i = 0; i < 30; i++) {
+      price += (Math.random() - 0.5) * price * 0.02; // ±2% daily change
+      prices.push(price);
+    }
+    
+    return prices;
+  }
+
+  private generateMockVolumes(): number[] {
+    return Array.from({ length: 30 }, () => Math.floor(Math.random() * 1000000) + 500000);
   }
 
   public calculateSignalScore(scoreComponents: {
