@@ -1,3 +1,4 @@
+import { TradingSignal } from './TradingRobotEngine';
 
 export interface SignalScore {
   technicalScore: number;
