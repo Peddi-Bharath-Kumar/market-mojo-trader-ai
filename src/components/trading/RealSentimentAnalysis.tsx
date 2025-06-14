@@ -17,6 +17,15 @@ interface SentimentScore {
   isRealData: boolean;
 }
 
+interface SentimentBySource {
+  [source: string]: {
+    positive: number;
+    negative: number;
+    neutral: number;
+    total: number;
+  };
+}
+
 export const RealSentimentAnalysis = () => {
   const [newsData, setNewsData] = useState<NewsData[]>([]);
   const [sentimentScores, setSentimentScores] = useState<SentimentScore[]>([]);
@@ -41,14 +50,14 @@ export const RealSentimentAnalysis = () => {
       setHasRealData(connectionStatus.hasRealData);
 
       // Analyze sentiment by source
-      const sentimentBySource = news.reduce((acc, article) => {
+      const sentimentBySource: SentimentBySource = news.reduce((acc, article) => {
         if (!acc[article.source]) {
           acc[article.source] = { positive: 0, negative: 0, neutral: 0, total: 0 };
         }
         acc[article.source][article.sentiment]++;
         acc[article.source].total++;
         return acc;
-      }, {} as Record<string, any>);
+      }, {} as SentimentBySource);
 
       // Generate sentiment scores
       const scores: SentimentScore[] = Object.entries(sentimentBySource).map(([source, data]) => {
@@ -66,7 +75,7 @@ export const RealSentimentAnalysis = () => {
           score: Math.max(0, Math.min(100, score + 50)), // Normalize to 0-100
           confidence: Math.min(95, 60 + (data.total * 5)), // Higher confidence with more articles
           articlesCount: data.total,
-          isRealData: connectionStatus.configured.includes('newsAPI')
+          isRealData: connectionStatus.configured.includes('newsAPI') || connectionStatus.configured.includes('gnews')
         };
       });
 

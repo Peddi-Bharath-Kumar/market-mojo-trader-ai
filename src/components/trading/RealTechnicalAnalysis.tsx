@@ -6,7 +6,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TrendingUp, TrendingDown, Minus, BarChart3, Wifi, WifiOff, RefreshCw } from 'lucide-react';
-import { realDataService, type TechnicalData } from '@/services/RealDataService';
+import { realDataService, type TechnicalIndicators } from '@/services/RealDataService';
 
 interface TechnicalSignal {
   indicator: string;
@@ -19,7 +19,7 @@ interface TechnicalSignal {
 
 export const RealTechnicalAnalysis = () => {
   const [selectedSymbol, setSelectedSymbol] = useState('NIFTY');
-  const [technicalData, setTechnicalData] = useState<TechnicalData | null>(null);
+  const [technicalData, setTechnicalData] = useState<TechnicalIndicators | null>(null);
   const [signals, setSignals] = useState<TechnicalSignal[]>([]);
   const [overallSignal, setOverallSignal] = useState<'buy' | 'sell' | 'hold'>('hold');
   const [signalStrength, setSignalStrength] = useState(50);
@@ -50,7 +50,7 @@ export const RealTechnicalAnalysis = () => {
           signal: data.rsi < 30 ? 'buy' : data.rsi > 70 ? 'sell' : 'hold',
           strength: data.rsi < 30 ? 90 : data.rsi > 70 ? 85 : 50,
           description: `RSI indicates ${data.rsi < 30 ? 'oversold' : data.rsi > 70 ? 'overbought' : 'neutral'} conditions`,
-          isRealData: connectionStatus.configured.includes('alphaVantage')
+          isRealData: connectionStatus.configured.includes('alphaVantage') || connectionStatus.configured.includes('trueData')
         },
         {
           indicator: 'MACD',
@@ -58,7 +58,7 @@ export const RealTechnicalAnalysis = () => {
           signal: data.macd.value > data.macd.signal ? 'buy' : 'sell',
           strength: Math.abs(data.macd.histogram) * 1000,
           description: `MACD ${data.macd.value > data.macd.signal ? 'bullish' : 'bearish'} crossover`,
-          isRealData: connectionStatus.configured.includes('alphaVantage')
+          isRealData: connectionStatus.configured.includes('alphaVantage') || connectionStatus.configured.includes('trueData')
         },
         {
           indicator: 'SMA (20)',
@@ -66,7 +66,7 @@ export const RealTechnicalAnalysis = () => {
           signal: 'hold', // Would need current price to determine
           strength: 60,
           description: '20-period Simple Moving Average',
-          isRealData: connectionStatus.configured.includes('alphaVantage')
+          isRealData: connectionStatus.configured.includes('alphaVantage') || connectionStatus.configured.includes('trueData')
         },
         {
           indicator: 'EMA (12)',
@@ -74,7 +74,7 @@ export const RealTechnicalAnalysis = () => {
           signal: 'hold',
           strength: 65,
           description: '12-period Exponential Moving Average',
-          isRealData: connectionStatus.configured.includes('alphaVantage')
+          isRealData: connectionStatus.configured.includes('alphaVantage') || connectionStatus.configured.includes('trueData')
         },
         {
           indicator: 'Bollinger Bands',
@@ -82,7 +82,7 @@ export const RealTechnicalAnalysis = () => {
           signal: data.bollingerBands.position < 0.2 ? 'buy' : data.bollingerBands.position > 0.8 ? 'sell' : 'hold',
           strength: data.bollingerBands.position < 0.2 || data.bollingerBands.position > 0.8 ? 80 : 50,
           description: `Price is ${(data.bollingerBands.position * 100).toFixed(1)}% through BB range`,
-          isRealData: connectionStatus.configured.includes('alphaVantage')
+          isRealData: connectionStatus.configured.includes('alphaVantage') || connectionStatus.configured.includes('trueData')
         },
         {
           indicator: 'Stochastic',
@@ -90,7 +90,7 @@ export const RealTechnicalAnalysis = () => {
           signal: data.stochastic.k < 20 ? 'buy' : data.stochastic.k > 80 ? 'sell' : 'hold',
           strength: data.stochastic.k < 20 || data.stochastic.k > 80 ? 75 : 45,
           description: `Stochastic ${data.stochastic.k < 20 ? 'oversold' : data.stochastic.k > 80 ? 'overbought' : 'neutral'}`,
-          isRealData: connectionStatus.configured.includes('alphaVantage')
+          isRealData: connectionStatus.configured.includes('alphaVantage') || connectionStatus.configured.includes('trueData')
         }
       ];
 
