@@ -40,7 +40,7 @@ export class IntegratedTradingEngine {
     }, 15000); // Check every 15 seconds
   }
 
-  private generateIntegratedSignals(): IntegratedSignal[] {
+  private async generateIntegratedSignals(): Promise<IntegratedSignal[]> {
     const signals: IntegratedSignal[] = [];
     
     // Get options trading opportunities from Greeks engine
@@ -65,20 +65,24 @@ export class IntegratedTradingEngine {
       }
     });
 
-    // Get enhanced market signals
-    const marketSignals = enhancedTradingEngine.generateEnhancedSignals();
-    marketSignals.forEach(signal => {
-      const enhancedSignal: IntegratedSignal = {
-        ...signal,
-        signalScore: enhancedTradingEngine.calculateSignalScore({
-          technicalScore: 25,
-          volumeScore: 20,
-          sentimentScore: 15,
-          volatilityScore: 10
-        })
-      };
-      signals.push(enhancedSignal);
-    });
+    // Get enhanced market signals - now properly awaiting the Promise
+    try {
+      const marketSignals = await enhancedTradingEngine.generateEnhancedSignals();
+      marketSignals.forEach(signal => {
+        const enhancedSignal: IntegratedSignal = {
+          ...signal,
+          signalScore: enhancedTradingEngine.calculateSignalScore({
+            technicalScore: 25,
+            volumeScore: 20,
+            sentimentScore: 15,
+            volatilityScore: 10
+          })
+        };
+        signals.push(enhancedSignal);
+      });
+    } catch (error) {
+      console.warn('Failed to generate enhanced signals:', error);
+    }
 
     // Filter and rank signals by quality
     const qualitySignals = this.filterHighQualitySignals(signals);
