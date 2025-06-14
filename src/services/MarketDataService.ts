@@ -73,6 +73,11 @@ class MarketDataService {
     }
   }
 
+  private simulateWebSocket() {
+    console.log('Starting WebSocket simulation...');
+    this.simulateRealTimeData();
+  }
+
   private async connectAngelBroking() {
     try {
       // Angel Broking SmartAPI WebSocket connection
