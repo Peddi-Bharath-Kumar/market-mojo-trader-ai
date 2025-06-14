@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -21,6 +20,7 @@ import {
 } from 'lucide-react';
 import { tradingRobotEngine, type TradingSignal } from '@/services/TradingRobotEngine';
 import { marketDataService } from '@/services/MarketDataService';
+import { TrailingStopSettings } from './TrailingStopSettings';
 
 export const TradingRobotDashboard = () => {
   const [robotActive, setRobotActive] = useState(false);
@@ -82,6 +82,11 @@ export const TradingRobotDashboard = () => {
               <Activity className={`h-3 w-3 ${robotActive ? 'animate-pulse' : ''}`} />
               {robotActive ? 'ACTIVE' : 'INACTIVE'}
             </Badge>
+            {robotStatus.trailingStopEnabled && (
+              <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+                Trailing Stop ON
+              </Badge>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -155,13 +160,30 @@ export const TradingRobotDashboard = () => {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="account" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
+      <Tabs defaultValue="settings" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-5">
+          <TabsTrigger value="settings">Position Settings</TabsTrigger>
           <TabsTrigger value="account">Account Overview</TabsTrigger>
           <TabsTrigger value="positions">Live Positions</TabsTrigger>
           <TabsTrigger value="signals">AI Signals</TabsTrigger>
           <TabsTrigger value="strategies">Strategies</TabsTrigger>
         </TabsList>
+
+        {/* Advanced Position Settings */}
+        <TabsContent value="settings">
+          <TrailingStopSettings
+            trailingEnabled={robotStatus.trailingStopEnabled || false}
+            partialBookingEnabled={robotStatus.partialProfitBooking || false}
+            onTrailingToggle={(enabled) => {
+              // This would update the robot configuration
+              console.log('Trailing stop toggled:', enabled);
+            }}
+            onPartialBookingToggle={(enabled) => {
+              // This would update the robot configuration
+              console.log('Partial booking toggled:', enabled);
+            }}
+          />
+        </TabsContent>
 
         {/* Account Overview */}
         <TabsContent value="account">
@@ -214,26 +236,33 @@ export const TradingRobotDashboard = () => {
           </div>
         </TabsContent>
 
-        {/* Live Positions */}
+        {/* Live Positions with Trailing Info */}
         <TabsContent value="positions">
           <Card>
             <CardHeader>
-              <CardTitle>Your Live Trading Positions</CardTitle>
+              <CardTitle>Your Live Trading Positions with Trailing Stops</CardTitle>
             </CardHeader>
             <CardContent>
-              {actualPositions.length > 0 ? (
-                <div className="space-y-3">
-                  {actualPositions.map((position, index) => (
+              {robotStatus.positions && robotStatus.positions.length > 0 ? (
+                <div className="space-y-4">
+                  {robotStatus.positions.map((position: any, index: number) => (
                     <div key={index} className={`p-4 border rounded-lg border-l-4 ${position.pnl >= 0 ? 'border-l-green-500' : 'border-l-red-500'}`}>
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-4">
-                          <div className={`p-2 rounded-full ${position.type === 'long' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
-                            {position.type === 'long' ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+                          <div className={`p-2 rounded-full ${position.action === 'buy' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                            {position.action === 'buy' ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
                           </div>
                           <div>
-                            <div className="font-medium text-lg">{position.symbol}</div>
+                            <div className="font-medium text-lg flex items-center gap-2">
+                              {position.symbol}
+                              {position.trailingActive && (
+                                <Badge variant="outline" className="bg-green-50 text-green-700 text-xs">
+                                  Trailing Active
+                                </Badge>
+                              )}
+                            </div>
                             <div className="text-sm text-gray-600">
-                              Qty: {position.quantity} | Avg: ₹{position.averagePrice.toFixed(2)}
+                              Qty: {position.quantity} | Entry: ₹{position.entryPrice.toFixed(2)}
                             </div>
                           </div>
                         </div>
@@ -243,6 +272,34 @@ export const TradingRobotDashboard = () => {
                             {position.pnl >= 0 ? '+' : ''}₹{position.pnl.toFixed(2)} ({position.pnlPercent.toFixed(1)}%)
                           </div>
                         </div>
+                      </div>
+                      
+                      {/* Trailing Stop Information */}
+                      <div className="bg-gray-50 p-3 rounded space-y-2">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                          <div>
+                            <span className="text-gray-600">Current Stop:</span>
+                            <div className="font-medium">₹{position.stopLoss.toFixed(2)}</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Original Stop:</span>
+                            <div className="font-medium">₹{position.originalStopLoss.toFixed(2)}</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Target:</span>
+                            <div className="font-medium">₹{position.target.toFixed(2)}</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Strategy:</span>
+                            <div className="font-medium">{position.strategy}</div>
+                          </div>
+                        </div>
+                        
+                        {position.profitBookingLevel > 0 && (
+                          <div className="text-sm text-blue-600">
+                            📊 Partial profits booked: {position.profitBookingLevel === 1 ? '50%' : '75%'} of original position
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

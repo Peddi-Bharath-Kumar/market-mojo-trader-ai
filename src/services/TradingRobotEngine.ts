@@ -1,4 +1,3 @@
-
 export interface TradingSignal {
   symbol: string;
   action: 'buy' | 'sell' | 'hold';
@@ -27,12 +26,32 @@ export interface StrategyConfig {
   riskPerTrade: number;
   maxDailyLoss: number;
   targetProfit: number;
+  trailingStopEnabled: boolean;
+  partialProfitBooking: boolean;
+}
+
+export interface Position {
+  id: string;
+  symbol: string;
+  action: 'buy' | 'sell';
+  quantity: number;
+  entryPrice: number;
+  currentPrice: number;
+  stopLoss: number;
+  originalStopLoss: number;
+  target: number;
+  pnl: number;
+  pnlPercent: number;
+  strategy: string;
+  entryTime: Date;
+  trailingActive: boolean;
+  profitBookingLevel: number; // 0 = no booking, 1 = 50% booked, 2 = 75% booked
 }
 
 export class TradingRobotEngine {
   private config: StrategyConfig;
   private isActive: boolean = false;
-  private currentPositions: any[] = [];
+  private currentPositions: Position[] = [];
   private marketCondition: MarketCondition | null = null;
 
   constructor(config: StrategyConfig) {
@@ -41,7 +60,7 @@ export class TradingRobotEngine {
 
   public startRobot(): void {
     this.isActive = true;
-    console.log('🤖 AI Trading Robot Started');
+    console.log('🤖 AI Trading Robot Started with Trailing Stop Loss');
     console.log('📊 Analyzing market conditions...');
     this.analyzeMarketConditions();
     this.monitorMarket();
@@ -76,8 +95,113 @@ export class TradingRobotEngine {
       }
 
       this.analyzeMarketConditions();
+      this.updatePositions(); // Update positions with current prices
+      this.manageTrailingStopLoss(); // Handle trailing stop logic
       this.generateSignals();
     }, 30000); // Check every 30 seconds
+  }
+
+  private updatePositions(): void {
+    // Simulate price updates for existing positions
+    this.currentPositions.forEach(position => {
+      // In real implementation, fetch current price from broker API
+      const priceChange = (Math.random() - 0.5) * 0.02; // ±1% random movement
+      position.currentPrice = position.currentPrice * (1 + priceChange);
+      
+      // Calculate P&L
+      if (position.action === 'buy') {
+        position.pnl = (position.currentPrice - position.entryPrice) * position.quantity;
+        position.pnlPercent = ((position.currentPrice - position.entryPrice) / position.entryPrice) * 100;
+      } else {
+        position.pnl = (position.entryPrice - position.currentPrice) * position.quantity;
+        position.pnlPercent = ((position.entryPrice - position.currentPrice) / position.entryPrice) * 100;
+      }
+    });
+  }
+
+  private manageTrailingStopLoss(): void {
+    if (!this.config.trailingStopEnabled) return;
+
+    this.currentPositions.forEach(position => {
+      const profitPercent = position.pnlPercent;
+
+      // Activate trailing when profit >= 1%
+      if (profitPercent >= 1.0 && !position.trailingActive) {
+        position.trailingActive = true;
+        // Move stop loss to breakeven
+        position.stopLoss = position.entryPrice;
+        console.log(`🎯 Trailing activated for ${position.symbol} - Stop moved to breakeven`);
+      }
+
+      // Trail stop loss as profit increases
+      if (position.trailingActive && profitPercent > 2.0) {
+        const trailAmount = position.action === 'buy' ? 
+          position.currentPrice * 0.015 : // Trail by 1.5% below current price for long
+          position.currentPrice * 0.015;  // Trail by 1.5% above current price for short
+
+        if (position.action === 'buy') {
+          const newStopLoss = position.currentPrice - trailAmount;
+          if (newStopLoss > position.stopLoss) {
+            position.stopLoss = newStopLoss;
+            console.log(`📈 Trailing stop updated for ${position.symbol}: ₹${newStopLoss.toFixed(2)} (Profit: ${profitPercent.toFixed(1)}%)`);
+          }
+        } else {
+          const newStopLoss = position.currentPrice + trailAmount;
+          if (newStopLoss < position.stopLoss) {
+            position.stopLoss = newStopLoss;
+            console.log(`📉 Trailing stop updated for ${position.symbol}: ₹${newStopLoss.toFixed(2)} (Profit: ${profitPercent.toFixed(1)}%)`);
+          }
+        }
+      }
+
+      // Partial profit booking
+      if (this.config.partialProfitBooking) {
+        this.handlePartialProfitBooking(position);
+      }
+
+      // Check for stop loss or target hit
+      this.checkExitConditions(position);
+    });
+  }
+
+  private handlePartialProfitBooking(position: Position): void {
+    const profitPercent = position.pnlPercent;
+
+    // Book 50% profit at 2% gain
+    if (profitPercent >= 2.0 && position.profitBookingLevel === 0) {
+      const partialQuantity = Math.floor(position.quantity / 2);
+      position.quantity -= partialQuantity;
+      position.profitBookingLevel = 1;
+      console.log(`💰 Booked 50% profit for ${position.symbol} at ${profitPercent.toFixed(1)}% gain`);
+    }
+
+    // Book additional 50% (25% of original) at 4% gain
+    if (profitPercent >= 4.0 && position.profitBookingLevel === 1) {
+      const partialQuantity = Math.floor(position.quantity / 2);
+      position.quantity -= partialQuantity;
+      position.profitBookingLevel = 2;
+      console.log(`💰 Booked additional 25% profit for ${position.symbol} at ${profitPercent.toFixed(1)}% gain`);
+    }
+  }
+
+  private checkExitConditions(position: Position): void {
+    const shouldExit = 
+      (position.action === 'buy' && position.currentPrice <= position.stopLoss) ||
+      (position.action === 'sell' && position.currentPrice >= position.stopLoss) ||
+      (position.action === 'buy' && position.currentPrice >= position.target) ||
+      (position.action === 'sell' && position.currentPrice <= position.target);
+
+    if (shouldExit) {
+      this.closePosition(position);
+    }
+  }
+
+  private closePosition(position: Position): void {
+    const reason = position.pnlPercent > 0 ? 'Target/Trailing Stop' : 'Stop Loss';
+    console.log(`🔄 Closing position ${position.symbol}: ${reason} - P&L: ${position.pnlPercent.toFixed(2)}%`);
+    
+    // Remove from active positions
+    this.currentPositions = this.currentPositions.filter(p => p.id !== position.id);
   }
 
   public generateSignals(): TradingSignal[] {
@@ -87,16 +211,25 @@ export class TradingRobotEngine {
     const symbols = ['NIFTY50', 'BANKNIFTY', 'RELIANCE', 'TCS', 'HDFC', 'INFY'];
 
     for (const symbol of symbols) {
+      // Don't generate new signals if we're at max positions
+      if (this.currentPositions.length >= this.config.maxPositions) break;
+
       // Intraday Strategy
       if (this.config.intradayEnabled) {
         const intradaySignal = this.intradayStrategy(symbol);
-        if (intradaySignal) signals.push(intradaySignal);
+        if (intradaySignal) {
+          signals.push(intradaySignal);
+          this.createPosition(intradaySignal);
+        }
       }
 
       // Options Strategy
       if (this.config.optionsEnabled) {
         const optionsSignal = this.optionsStrategy(symbol);
-        if (optionsSignal) signals.push(optionsSignal);
+        if (optionsSignal) {
+          signals.push(optionsSignal);
+          this.createPosition(optionsSignal);
+        }
       }
     }
 
@@ -105,6 +238,29 @@ export class TradingRobotEngine {
     }
 
     return signals;
+  }
+
+  private createPosition(signal: TradingSignal): void {
+    const position: Position = {
+      id: `${signal.symbol}_${Date.now()}`,
+      symbol: signal.symbol,
+      action: signal.action,
+      quantity: signal.quantity,
+      entryPrice: signal.price || 19800,
+      currentPrice: signal.price || 19800,
+      stopLoss: signal.stopLoss || 0,
+      originalStopLoss: signal.stopLoss || 0,
+      target: signal.target || 0,
+      pnl: 0,
+      pnlPercent: 0,
+      strategy: signal.strategy,
+      entryTime: new Date(),
+      trailingActive: false,
+      profitBookingLevel: 0
+    };
+
+    this.currentPositions.push(position);
+    console.log(`✅ Position created: ${signal.symbol} ${signal.action} @ ₹${position.entryPrice}`);
   }
 
   private intradayStrategy(symbol: string): TradingSignal | null {
@@ -119,6 +275,7 @@ export class TradingRobotEngine {
         action: 'buy',
         orderType: 'limit',
         quantity: this.calculatePositionSize(symbol),
+        price: 19800,
         confidence: 0.75,
         reason: 'Bullish trend with high volume - momentum play',
         strategy: 'Intraday Momentum',
@@ -133,6 +290,7 @@ export class TradingRobotEngine {
         action: 'sell',
         orderType: 'limit',
         quantity: this.calculatePositionSize(symbol),
+        price: 19800,
         confidence: 0.70,
         reason: 'Bearish trend with high volatility - short opportunity',
         strategy: 'Intraday Short',
@@ -203,7 +361,7 @@ export class TradingRobotEngine {
 
   private calculateTarget(symbol: string, action: 'buy' | 'sell'): number {
     const currentPrice = 19800; // This should come from real market data
-    const targetPercentage = 2.5;
+    const targetPercentage = 4.0; // Increased target for trailing system
     
     if (action === 'buy') {
       return currentPrice * (1 + targetPercentage / 100);
@@ -218,11 +376,14 @@ export class TradingRobotEngine {
       marketCondition: this.marketCondition,
       currentPositions: this.currentPositions.length,
       maxPositions: this.config.maxPositions,
+      positions: this.currentPositions,
       strategies: {
         intraday: this.config.intradayEnabled,
         options: this.config.optionsEnabled,
         swing: this.config.swingEnabled
-      }
+      },
+      trailingStopEnabled: this.config.trailingStopEnabled,
+      partialProfitBooking: this.config.partialProfitBooking
     };
   }
 }
@@ -234,5 +395,7 @@ export const tradingRobotEngine = new TradingRobotEngine({
   maxPositions: 5,
   riskPerTrade: 1.0,
   maxDailyLoss: 2.0,
-  targetProfit: 2.0
+  targetProfit: 2.0,
+  trailingStopEnabled: true,
+  partialProfitBooking: true
 });
