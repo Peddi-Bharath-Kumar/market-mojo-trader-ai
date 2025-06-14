@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,6 +15,7 @@ import { VirtualTradingMode } from '@/components/trading/VirtualTradingMode';
 import { OptionsGreeksPanel } from '@/components/trading/OptionsGreeksPanel';
 import { useToast } from '@/hooks/use-toast';
 import { marketDataService } from '@/services/MarketDataService';
+import { TradingRobotDashboard } from '@/components/trading/TradingRobotDashboard';
 
 const TradingDashboard = () => {
   const [isTrading, setIsTrading] = useState(false);
@@ -80,7 +80,7 @@ const TradingDashboard = () => {
             Professional AI Trading Agent
           </h1>
           <p className="text-gray-600">
-            Advanced trading with Options Greeks, real-time data, sentiment analysis, and risk management
+            Advanced AI robot with intraday, options strategies, real-time analysis, and automatic risk management
           </p>
         </div>
 
@@ -142,8 +142,9 @@ const TradingDashboard = () => {
           </CardContent>
         </Card>
 
-        <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-5 lg:grid-cols-10">
+        <Tabs defaultValue="robot" className="space-y-4">
+          <TabsList className="grid w-full grid-cols-5 lg:grid-cols-11">
+            <TabsTrigger value="robot">AI Robot</TabsTrigger>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="virtual">Virtual</TabsTrigger>
             <TabsTrigger value="market">Market Data</TabsTrigger>
@@ -155,6 +156,10 @@ const TradingDashboard = () => {
             <TabsTrigger value="backtest">Backtest</TabsTrigger>
             <TabsTrigger value="config">Config</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="robot">
+            <TradingRobotDashboard />
+          </TabsContent>
 
           <TabsContent value="overview">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
