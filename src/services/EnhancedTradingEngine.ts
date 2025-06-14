@@ -342,9 +342,8 @@ export class EnhancedTradingEngine {
     };
   }
 
-  public generateEnhancedSignals(): TradingSignal[] {
-    // This method is kept for backward compatibility
-    // The real implementation should use generateEnhancedSignalsWithRealData
+  public generateEnhancedSignals(): Promise<TradingSignal[]> {
+    // Return the promise directly
     return this.generateEnhancedSignalsWithRealData().catch(() => {
       console.warn('Real data generation failed, using mock signals');
       const signals: TradingSignal[] = [];
@@ -357,10 +356,10 @@ export class EnhancedTradingEngine {
       });
       
       return signals;
-    }) as any; // Type assertion for compatibility
+    });
   }
 
-  public generateEnhancedSignalsWithRealData(): Promise<TradingSignal[]> {
+  public async generateEnhancedSignalsWithRealData(): Promise<TradingSignal[]> {
     const signals: TradingSignal[] = [];
     const symbols = ['NIFTY', 'BANKNIFTY', 'RELIANCE', 'TCS', 'INFY'];
     
