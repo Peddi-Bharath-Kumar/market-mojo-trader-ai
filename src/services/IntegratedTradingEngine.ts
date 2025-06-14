@@ -3,6 +3,7 @@ import { optionsGreeksEngine, type OptionsGreeksData } from './OptionsGreeksEngi
 import { enhancedTradingEngine } from './EnhancedTradingEngine';
 import { realDataService } from './RealDataService';
 import { marketDataService } from './MarketDataService';
+import { orderExecutionService, type OrderRequest } from './OrderExecutionService';
 
 export interface IntegratedSignal extends TradingSignal {
   greeksData?: OptionsGreeksData;
@@ -15,6 +16,7 @@ export interface IntegratedSignal extends TradingSignal {
 
 export class IntegratedTradingEngine {
   private isActive: boolean = false;
+  private autoTradingEnabled: boolean = false;
 
   public startIntegratedTrading(): void {
     this.isActive = true;
@@ -24,6 +26,18 @@ export class IntegratedTradingEngine {
     
     this.initializeDataSources();
     this.monitorIntegratedSignals();
+  }
+
+  public enableAutoTrading() {
+    this.autoTradingEnabled = true;
+    orderExecutionService.enableLiveTrading();
+    console.log('🤖 AUTO-TRADING ENABLED - System will place real orders!');
+  }
+
+  public disableAutoTrading() {
+    this.autoTradingEnabled = false;
+    orderExecutionService.disableLiveTrading();
+    console.log('📋 Auto-trading disabled - Signal generation only');
   }
 
   public stopIntegratedTrading(): void {
@@ -52,14 +66,59 @@ export class IntegratedTradingEngine {
   private monitorIntegratedSignals(): void {
     if (!this.isActive) return;
 
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       if (!this.isActive) {
         clearInterval(interval);
         return;
       }
 
-      this.generateIntegratedSignals();
+      const signals = await this.generateIntegratedSignals();
+      
+      // Execute high-quality signals automatically if auto-trading is enabled
+      if (this.autoTradingEnabled && signals.length > 0) {
+        await this.executeHighQualitySignals(signals);
+      }
     }, 15000); // Check every 15 seconds
+  }
+
+  private async executeHighQualitySignals(signals: IntegratedSignal[]): Promise<void> {
+    const highQualitySignals = signals.filter(signal => 
+      signal.confidence >= 0.85 && 
+      signal.signalScore && 
+      signal.signalScore.totalScore >= 90
+    );
+
+    for (const signal of highQualitySignals.slice(0, 2)) { // Limit to 2 orders per cycle
+      try {
+        const orderRequest: OrderRequest = {
+          symbol: signal.symbol,
+          action: signal.action,
+          orderType: signal.orderType || 'limit',
+          quantity: signal.quantity,
+          price: signal.price,
+          stopLoss: signal.stopLoss,
+          target: signal.target,
+          product: signal.strategy.includes('Intraday') ? 'mis' : 'cnc',
+          validity: 'day'
+        };
+
+        console.log(`🎯 Executing high-quality signal: ${signal.symbol} ${signal.action} (Confidence: ${(signal.confidence * 100).toFixed(1)}%)`);
+        
+        const orderResponse = await orderExecutionService.placeOrder(orderRequest);
+        
+        if (orderResponse.status === 'complete' || orderResponse.status === 'pending') {
+          console.log(`✅ Order placed successfully: ${orderResponse.orderId}`);
+        } else {
+          console.log(`❌ Order rejected: ${orderResponse.message}`);
+        }
+        
+        // Wait 2 seconds between orders to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+      } catch (error) {
+        console.error(`❌ Failed to execute signal for ${signal.symbol}:`, error);
+      }
+    }
   }
 
   private async generateIntegratedSignals(): Promise<IntegratedSignal[]> {
@@ -337,14 +396,17 @@ export class IntegratedTradingEngine {
     const tradingOpportunities = optionsGreeksEngine.getTradingOpportunities();
     const marketDataStatus = marketDataService.getConnectionStatus();
     const realDataCredentials = realDataService.getCredentials();
+    const tradingStatus = orderExecutionService.getTradingStatus();
     
     return {
       isActive: this.isActive,
+      autoTradingEnabled: this.autoTradingEnabled,
       portfolioRisk,
       highRiskOptionsCount: highRiskOptions.length,
       tradingOpportunitiesCount: tradingOpportunities.length,
       optionsMonitoring: true,
       enhancedAnalysis: true,
+      orderExecution: tradingStatus,
       dataSourcesStatus: {
         brokerAPI: marketDataStatus.isConnected,
         brokerName: marketDataStatus.broker,
