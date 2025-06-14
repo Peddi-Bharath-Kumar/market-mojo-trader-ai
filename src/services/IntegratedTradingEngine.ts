@@ -85,14 +85,15 @@ export class IntegratedTradingEngine {
     const highQualitySignals = signals.filter(signal => 
       signal.confidence >= 0.85 && 
       signal.signalScore && 
-      signal.signalScore.totalScore >= 90
+      signal.signalScore >= 90 &&
+      signal.action !== 'hold' // Filter out hold signals
     );
 
     for (const signal of highQualitySignals.slice(0, 2)) { // Limit to 2 orders per cycle
       try {
         const orderRequest: OrderRequest = {
           symbol: signal.symbol,
-          action: signal.action,
+          action: signal.action as 'buy' | 'sell', // Now guaranteed to be buy or sell
           orderType: signal.orderType || 'limit',
           quantity: signal.quantity,
           price: signal.price,
