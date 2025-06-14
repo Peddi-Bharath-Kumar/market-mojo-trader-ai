@@ -138,7 +138,7 @@ export const SignalQualityPanel = () => {
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-green-600">{qualityData.highQualitySignals}</div>
-              <div className="text-sm text-gray-600">High Quality (>80)</div>
+              <div className="text-sm text-gray-600">High Quality (80+)</div>
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-purple-600">{qualityData.successRate.toFixed(1)}%</div>
