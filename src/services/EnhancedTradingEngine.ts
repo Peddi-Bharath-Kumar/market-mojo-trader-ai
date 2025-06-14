@@ -317,6 +317,68 @@ export class EnhancedTradingEngine {
     };
   }
 
+  public generateEnhancedSignals(): TradingSignal[] {
+    const signals: TradingSignal[] = [];
+    
+    // Mock signal generation based on current market regime
+    const mockSymbols = ['NIFTY', 'BANKNIFTY', 'RELIANCE', 'TCS', 'INFY'];
+    
+    mockSymbols.forEach(symbol => {
+      // Generate random signal for demonstration
+      if (Math.random() > 0.7) { // 30% chance of signal
+        const action = Math.random() > 0.5 ? 'buy' : 'sell';
+        const price = 100 + Math.random() * 400; // Mock price
+        
+        const signal: TradingSignal = {
+          symbol,
+          action,
+          orderType: 'limit',
+          quantity: Math.floor(Math.random() * 100) + 10,
+          price,
+          confidence: 0.6 + Math.random() * 0.3, // 60-90% confidence
+          reason: `Enhanced ${action} signal based on market regime analysis`,
+          strategy: 'Enhanced Market Regime',
+          target: action === 'buy' ? price * 1.02 : price * 0.98,
+          stopLoss: action === 'buy' ? price * 0.98 : price * 1.02
+        };
+        
+        signals.push(signal);
+      }
+    });
+    
+    console.log(`🎯 Generated ${signals.length} enhanced signals`);
+    return signals;
+  }
+
+  public calculateSignalScore(scoreComponents: {
+    technicalScore: number;
+    volumeScore: number;
+    sentimentScore: number;
+    volatilityScore: number;
+  }): number {
+    const { technicalScore, volumeScore, sentimentScore, volatilityScore } = scoreComponents;
+    const totalScore = technicalScore + volumeScore + sentimentScore + volatilityScore;
+    
+    // Apply market regime multiplier
+    let regimeMultiplier = 1.0;
+    if (this.marketRegime) {
+      switch (this.marketRegime.type) {
+        case 'trending_bull':
+        case 'trending_bear':
+          regimeMultiplier = 1.1; // Boost trending signals
+          break;
+        case 'sideways_low_vol':
+          regimeMultiplier = 0.9; // Reduce sideways signals
+          break;
+        case 'volatile_uncertain':
+          regimeMultiplier = 0.8; // Penalize uncertain signals
+          break;
+      }
+    }
+    
+    return Math.min(100, totalScore * regimeMultiplier);
+  }
+
   public getDynamicAllocation(): DynamicAllocation {
     return this.dynamicAllocation;
   }
