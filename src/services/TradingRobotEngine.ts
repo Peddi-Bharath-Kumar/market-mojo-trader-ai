@@ -1,3 +1,4 @@
+
 export interface TradingSignal {
   symbol: string;
   action: 'buy' | 'sell' | 'hold';
@@ -241,10 +242,16 @@ export class TradingRobotEngine {
   }
 
   private createPosition(signal: TradingSignal): void {
+    // Don't create positions for 'hold' signals
+    if (signal.action === 'hold') {
+      console.log(`🔍 Hold signal for ${signal.symbol}: ${signal.reason}`);
+      return;
+    }
+
     const position: Position = {
       id: `${signal.symbol}_${Date.now()}`,
       symbol: signal.symbol,
-      action: signal.action,
+      action: signal.action, // Now this is guaranteed to be 'buy' | 'sell'
       quantity: signal.quantity,
       entryPrice: signal.price || 19800,
       currentPrice: signal.price || 19800,
