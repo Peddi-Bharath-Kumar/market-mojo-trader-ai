@@ -69,7 +69,7 @@ export const RealTechnicalAnalysis = () => {
         },
         {
           indicator: 'SMA (20)',
-          value: data.movingAverages.sma20.toFixed(2),
+          value: data.sma20.toFixed(2),
           signal: 'hold', // Would need current price to determine
           strength: 60,
           description: '20-period Simple Moving Average',
@@ -77,7 +77,7 @@ export const RealTechnicalAnalysis = () => {
         },
         {
           indicator: 'EMA (12)',
-          value: data.movingAverages.ema12.toFixed(2),
+          value: data.ema12.toFixed(2),
           signal: 'hold',
           strength: 65,
           description: '12-period Exponential Moving Average',
