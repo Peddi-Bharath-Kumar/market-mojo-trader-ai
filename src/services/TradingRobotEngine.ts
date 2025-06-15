@@ -2,6 +2,7 @@ import { PositionManager } from './trading/PositionManager';
 import { TradingSignal, MarketCondition, StrategyConfig, Position } from './trading/types';
 import { orderExecutionService, OrderRequest } from './OrderExecutionService';
 import { marketDataService } from './MarketDataService';
+import { realDataService } from './RealDataService';
 
 export type { TradingSignal }; // Re-export for legacy dependencies
 
@@ -465,18 +466,28 @@ export class TradingRobotEngine {
     if (!this.marketCondition) return null;
   
     try {
+      // Fetch both real-time price and technical indicators
       const priceData = await marketDataService.getRealTimePrice(symbol);
-      if (!priceData || !priceData.ltp) {
-        console.warn(`Could not get price for ${symbol}, skipping strategy.`);
+      const technicals = await realDataService.getTechnicalIndicators(symbol);
+
+      if (!priceData || !priceData.ltp || !technicals) {
+        console.warn(`Could not get complete market data for ${symbol}, skipping strategy.`);
         return null;
       }
       const currentPrice = priceData.ltp;
+      const atr = technicals.atr; // Use real ATR from indicators
   
-      const { trend, volume } = this.marketCondition;
+      const { trend } = this.marketCondition;
   
-      if (trend === 'bullish' && volume === 'high' && this.positionManager.getPositionCount() < this.config.maxPositions) {
-        const stopLoss = this.calculateStopLoss(symbol, currentPrice, 'buy');
-        const target = this.calculateTarget(symbol, currentPrice, stopLoss, 'buy');
+      // --- Enhanced Buy Signal with Confluence ---
+      const isBullishConfluence = 
+        trend === 'bullish' &&
+        currentPrice > (technicals.movingAverages?.['20_ema'] || 0) &&
+        technicals.rsi < 65; // Avoid buying into overbought conditions
+  
+      if (isBullishConfluence && this.positionManager.getPositionCount() < this.config.maxPositions) {
+        const stopLoss = this.calculateStopLoss(currentPrice, atr, 'buy');
+        const target = this.calculateTarget(currentPrice, stopLoss, 'buy');
         const quantity = this.calculatePositionSize(currentPrice, stopLoss);
         
         if (quantity <= 0) return null;
@@ -487,17 +498,23 @@ export class TradingRobotEngine {
           orderType: 'limit',
           quantity,
           price: currentPrice,
-          confidence: 0.75,
-          reason: `Bullish trend, high volume, ATR-based risk. SL: ${stopLoss.toFixed(2)}`,
-          strategy: 'Intraday Momentum',
+          confidence: 0.80, // Higher confidence due to confluence
+          reason: `Bullish trend, >20 EMA, RSI<65.`,
+          strategy: 'Intraday Confluence',
           stopLoss,
           target,
         };
       }
   
-      if (trend === 'bearish' && this.marketCondition.volatility === 'high') {
-        const stopLoss = this.calculateStopLoss(symbol, currentPrice, 'sell');
-        const target = this.calculateTarget(symbol, currentPrice, stopLoss, 'sell');
+      // --- Enhanced Sell Signal with Confluence ---
+      const isBearishConfluence = 
+        trend === 'bearish' &&
+        currentPrice < (technicals.movingAverages?.['20_ema'] || 0) &&
+        technicals.rsi > 35; // Avoid selling into oversold conditions
+
+      if (isBearishConfluence && this.positionManager.getPositionCount() < this.config.maxPositions) {
+        const stopLoss = this.calculateStopLoss(currentPrice, atr, 'sell');
+        const target = this.calculateTarget(currentPrice, stopLoss, 'sell');
         const quantity = this.calculatePositionSize(currentPrice, stopLoss);
         
         if (quantity <= 0) return null;
@@ -508,9 +525,9 @@ export class TradingRobotEngine {
           orderType: 'limit',
           quantity,
           price: currentPrice,
-          confidence: 0.70,
-          reason: `Bearish trend, high volatility, ATR-based risk. SL: ${stopLoss.toFixed(2)}`,
-          strategy: 'Intraday Short',
+          confidence: 0.78, // Higher confidence
+          reason: `Bearish trend, <20 EMA, RSI>35.`,
+          strategy: 'Intraday Confluence',
           stopLoss,
           target,
         };
@@ -567,9 +584,8 @@ export class TradingRobotEngine {
     return size > 0 ? size : 0;
   }
 
-  private calculateStopLoss(symbol: string, price: number, action: 'buy' | 'sell'): number {
-    const atr = this.getSymbolATR(symbol);
-    const stopLossDistance = atr * 2; // Common practice: 2x ATR for stop
+  private calculateStopLoss(price: number, atr: number, action: 'buy' | 'sell'): number {
+    const stopLossDistance = atr * 1.5; // Tighter stop loss based on real volatility: 1.5x ATR
     
     if (action === 'buy') {
       return price - stopLossDistance;
@@ -578,9 +594,9 @@ export class TradingRobotEngine {
     }
   }
 
-  private calculateTarget(symbol: string, price: number, stopLoss: number, action: 'buy' | 'sell'): number {
+  private calculateTarget(price: number, stopLoss: number, action: 'buy' | 'sell'): number {
     const riskDistance = Math.abs(price - stopLoss);
-    const targetDistance = riskDistance * 1.5; // Aim for 1:1.5 Risk-to-Reward
+    const targetDistance = riskDistance * 2.0; // Aim for a higher 1:2.0 Risk-to-Reward ratio
     
     if (action === 'buy') {
       return price + targetDistance;
@@ -590,8 +606,9 @@ export class TradingRobotEngine {
   }
 
   private getSymbolATR(symbol: string): number {
-    // This is a MOCK. In a real system, this would come from a data provider.
-    // ATR values are absolute price movements.
+    // This function is now DEPRECATED in favor of real ATR from technical indicators.
+    // It is kept as a fallback only. We should remove this in a future refactor.
+    console.warn(`DEPRECATED: getSymbolATR called for ${symbol}. Using mocked data.`);
     const atrMap: { [key: string]: number } = {
       'NIFTY50': 120.5, 'BANKNIFTY': 350.0,
       'RELIANCE': 45.8, 'TCS': 55.2, 'INFY': 30.1,
