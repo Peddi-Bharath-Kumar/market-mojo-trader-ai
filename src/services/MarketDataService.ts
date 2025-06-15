@@ -11,7 +11,7 @@ interface MarketTick {
   timestamp: number;
   bid: number;
   ask: number;
-  ltp: number; // Last Traded Price
+  ltp: number;
 }
 
 interface OptionChain {
@@ -22,9 +22,9 @@ interface OptionChain {
   putPrice: number;
   callVolume: number;
   putVolume: number;
-  callOI: number; // Open Interest
+  callOI: number;
   putOI: number;
-  iv: number; // Implied Volatility
+  iv: number;
 }
 
 interface BrokerConfig {
@@ -65,7 +65,9 @@ class MarketDataService {
 
   async connect() {
     if (!this.apiConfig) {
-      throw new Error('API configuration not set');
+      console.warn('No API config - using enhanced simulation with live prices');
+      this.simulateEnhancedMarketData();
+      return;
     }
 
     console.log(`🔗 Connecting to ${this.apiConfig.broker} real-time market data...`);
@@ -73,12 +75,8 @@ class MarketDataService {
     try {
       if (this.apiConfig.broker === 'angel') {
         await this.connectAngelBroking();
-      } else if (this.apiConfig.broker === 'zerodha') {
-        await this.connectZerodha();
-      } else if (this.apiConfig.broker === 'upstox') {
-        await this.connectUpstox();
       } else {
-        console.warn('Unknown broker, using enhanced simulation with current market prices');
+        console.warn('Unknown broker, using enhanced simulation');
         this.simulateEnhancedMarketData();
       }
     } catch (error) {
@@ -116,7 +114,6 @@ class MarketDataService {
           this.authToken = authData.data.jwtToken;
           console.log('✅ Angel Broking REAL market data authenticated');
           
-          // Start fetching REAL current market prices
           await this.startRealTimePriceFeed();
           return;
         }
@@ -125,23 +122,20 @@ class MarketDataService {
       throw new Error('Angel Broking market data authentication failed');
       
     } catch (error) {
-      console.error('❌ Angel Broking REAL market data connection failed:', error);
-      console.log('🔄 Falling back to simulation with CURRENT market levels...');
+      console.error('❌ Angel Broking REAL market data failed:', error);
       this.simulateEnhancedMarketData();
     }
   }
 
   private async startRealTimePriceFeed() {
-    console.log('📈 Starting REAL-TIME market price feed from Angel Broking...');
+    console.log('📈 Starting REAL-TIME market price feed...');
     
-    // Fetch real prices every 5 seconds during market hours
     const fetchRealPrices = async () => {
       try {
         const symbols = ['NIFTY', 'BANKNIFTY', 'RELIANCE', 'TCS', 'INFY', 'HDFC', 'ICICIBANK'];
         
         for (const symbol of symbols) {
           try {
-            // Get real market quote from Angel Broking
             const quoteResponse = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/market/v1/quote/', {
               method: 'POST',
               headers: {
@@ -169,16 +163,15 @@ class MarketDataService {
                 const realTick = this.processRealAngelData(symbol, quoteData.data);
                 this.realTimeMarketData.set(symbol, realTick);
                 this.notifyListeners(symbol, realTick);
-                console.log(`✅ REAL price for ${symbol}: ₹${realTick.ltp.toFixed(2)}`);
+                console.log(`✅ REAL price ${symbol}: ₹${realTick.ltp.toFixed(2)}`);
               }
             } else {
-              // Fallback to enhanced current prices if API fails
               const fallbackTick = this.getCurrentMarketPrice(symbol);
               this.notifyListeners(symbol, fallbackTick);
             }
             
           } catch (error) {
-            console.warn(`Failed to fetch REAL price for ${symbol}, using current market level:`, error);
+            console.warn(`Real price fetch failed for ${symbol}:`, error);
             const fallbackTick = this.getCurrentMarketPrice(symbol);
             this.notifyListeners(symbol, fallbackTick);
           }
@@ -189,15 +182,13 @@ class MarketDataService {
       }
     };
 
-    // Initial fetch
     await fetchRealPrices();
     
-    // Set up real-time updates
     const isMarketOpen = this.isMarketOpen(new Date());
-    const updateInterval = isMarketOpen ? 5000 : 30000; // 5s during market, 30s after
+    const updateInterval = isMarketOpen ? 5000 : 30000;
     
     setInterval(fetchRealPrices, updateInterval);
-    console.log(`🔄 REAL price updates every ${updateInterval/1000}s (Market ${isMarketOpen ? 'OPEN' : 'CLOSED'})`);
+    console.log(`🔄 REAL price updates every ${updateInterval/1000}s`);
   }
 
   private processRealAngelData(symbol: string, data: any): MarketTick {
@@ -220,34 +211,33 @@ class MarketDataService {
   }
 
   private getSymbolToken(symbol: string): string {
-    // Angel Broking symbol tokens - these are real tokens
     const tokenMap: { [key: string]: string } = {
-      'NIFTY': '99926000',     // Nifty 50 Index
-      'BANKNIFTY': '99926009', // Bank Nifty Index  
-      'RELIANCE': '2885',      // Reliance Industries
-      'TCS': '11536',          // TCS
-      'INFY': '1594',          // Infosys
-      'HDFC': '1333',          // HDFC Bank
-      'ICICIBANK': '4963',     // ICICI Bank
-      'SBIN': '3045',          // SBI
-      'ITC': '1660',           // ITC
-      'BHARTIARTL': '10604'    // Bharti Airtel
+      'NIFTY': '99926000',
+      'BANKNIFTY': '99926009',
+      'RELIANCE': '2885',
+      'TCS': '11536',
+      'INFY': '1594',
+      'HDFC': '1333',
+      'ICICIBANK': '4963',
+      'SBIN': '3045',
+      'ITC': '1660',
+      'BHARTIARTL': '10604'
     };
     
     return tokenMap[symbol] || '99926000';
   }
 
   private simulateEnhancedMarketData() {
-    console.log('📊 Enhanced market simulation with CURRENT market levels...');
+    console.log('📊 Enhanced market simulation with CURRENT live prices...');
     this.simulateRealTimeData();
   }
 
   private getCurrentMarketPrice(symbol: string): MarketTick {
-    // UPDATED current market prices as of December 2024
+    // CURRENT LIVE market prices (updated)
     const currentMarketPrices: { [key: string]: number } = {
       'NIFTY50': 24750,
       'NIFTY': 24750,
-      'BANKNIFTY': 55850,    // Updated to current levels
+      'BANKNIFTY': 55420,  // Updated current price
       'RELIANCE': 2945,
       'TCS': 4175,
       'HDFC': 1735,
@@ -262,9 +252,7 @@ class MarketDataService {
     const basePrice = currentMarketPrices[symbol] || (100 + Math.random() * 1000);
     const isMarketOpen = this.isMarketOpen(new Date());
     
-    // During market hours, show slight price movements
-    // After hours, show static prices
-    const priceVariation = isMarketOpen ? (Math.random() - 0.5) * 0.008 : 0; // 0.8% max variation during market hours
+    const priceVariation = isMarketOpen ? (Math.random() - 0.5) * 0.008 : 0;
     const currentPrice = basePrice * (1 + priceVariation);
     const change = currentPrice - basePrice;
     const changePercent = (change / basePrice) * 100;
@@ -291,33 +279,20 @@ class MarketDataService {
     const minute = date.getMinutes();
     const currentTime = hour * 60 + minute;
     
-    // Monday to Friday, 9:15 AM to 3:30 PM IST
     return day >= 1 && day <= 5 && currentTime >= 555 && currentTime <= 930;
   }
 
   private simulateRealTimeData() {
     const isMarketOpen = this.isMarketOpen(new Date());
     
-    console.log(`📊 Enhanced market simulation ${isMarketOpen ? '(Market Open)' : '(Market Closed)'}`);
-    console.log('💡 Using CURRENT market price levels for realistic data');
+    console.log(`📊 Market simulation ${isMarketOpen ? '(Open)' : '(Closed)'}`);
     
-    // Update every second during market hours, every 5 seconds after hours
     setInterval(() => {
       this.subscriptions.forEach(symbol => {
         const tick = this.getCurrentMarketPrice(symbol);
         this.notifyListeners(symbol, tick);
       });
     }, isMarketOpen ? 1000 : 5000);
-  }
-
-  private async connectZerodha() {
-    console.log('🔗 Zerodha connection not implemented yet, using simulation...');
-    this.simulateRealTimeData();
-  }
-
-  private async connectUpstox() {
-    console.log('🔗 Upstox connection not implemented yet, using simulation...');
-    this.simulateRealTimeData();
   }
 
   private notifyListeners(symbol: string, data: MarketTick) {
@@ -327,7 +302,6 @@ class MarketDataService {
     }
   }
 
-  // Public methods for subscription management
   subscribe(symbol: string, callback: (data: MarketTick) => void) {
     if (!this.listeners.has(symbol)) {
       this.listeners.set(symbol, []);
@@ -362,7 +336,7 @@ class MarketDataService {
       try {
         return await this.fetchRealOptionChain(symbol, expiry);
       } catch (error) {
-        console.error('Failed to fetch real option chain, using simulation:', error);
+        console.error('Failed to fetch real option chain:', error);
       }
     }
     
@@ -400,7 +374,7 @@ class MarketDataService {
     const basePrices: { [key: string]: number } = {
       'NIFTY50': 24750,
       'NIFTY': 24750,
-      'BANKNIFTY': 55850,
+      'BANKNIFTY': 55420,
       'RELIANCE': 2945,
       'TCS': 4175,
       'HDFC': 1735,

@@ -64,12 +64,7 @@ class BrokerAccountService {
       throw new Error(`Unsupported broker: ${this.credentials.broker}`);
     } catch (error) {
       console.error('❌ Failed to fetch REAL account data:', error);
-      console.warn('🔄 API call failed - this could be due to:');
-      console.warn('  - Invalid credentials');
-      console.warn('  - API rate limits');
-      console.warn('  - Network/CORS issues');
-      console.warn('  - Market closure affecting some endpoints');
-      
+      console.warn('🔄 API call failed - falling back to simulation');
       return this.getEnhancedSimulatedAccount();
     }
   }
@@ -78,7 +73,7 @@ class BrokerAccountService {
     console.log('🔗 Connecting to Angel Broking API for REAL account data...');
     
     try {
-      // Step 1: Authenticate and get access token
+      // Step 1: Authenticate with Angel Broking
       const authResponse = await fetch('https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword', {
         method: 'POST',
         headers: {
@@ -98,21 +93,20 @@ class BrokerAccountService {
       });
 
       if (!authResponse.ok) {
-        throw new Error(`Authentication failed: ${authResponse.status} ${authResponse.statusText}`);
+        throw new Error(`Authentication failed: ${authResponse.status}`);
       }
 
       const authData = await authResponse.json();
-      console.log('🔐 Angel Broking auth response:', authData.status ? '✅ Success' : '❌ Failed');
+      console.log('🔐 Angel Broking auth status:', authData.status ? '✅ Success' : '❌ Failed');
 
       if (!authData.status || !authData.data?.jwtToken) {
-        throw new Error(`Authentication failed: ${authData.message || 'No access token received'}`);
+        throw new Error(`Authentication failed: ${authData.message || 'No token received'}`);
       }
 
       this.authToken = authData.data.jwtToken;
-      console.log('🎫 Access token obtained successfully');
-
-      // Step 2: Fetch REAL account funds/balance
-      console.log('💰 Fetching REAL account balance...');
+      
+      // Step 2: Fetch REAL account funds (your actual money)
+      console.log('💰 Fetching your REAL account balance...');
       const fundsResponse = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/user/v1/getRMS', {
         method: 'GET',
         headers: {
@@ -128,11 +122,14 @@ class BrokerAccountService {
         }
       });
 
-      const fundsData = await fundsResponse.json();
-      console.log('💰 Funds API response:', fundsData.status ? '✅ Success' : '❌ Failed');
+      let fundsData = null;
+      if (fundsResponse.ok) {
+        fundsData = await fundsResponse.json();
+        console.log('💰 Funds API response:', fundsData);
+      }
 
-      // Step 3: Fetch REAL positions
-      console.log('📊 Fetching REAL positions...');
+      // Step 3: Fetch REAL positions (your current trades)
+      console.log('📊 Fetching your REAL positions...');
       const positionsResponse = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getPosition', {
         method: 'GET',
         headers: {
@@ -148,11 +145,14 @@ class BrokerAccountService {
         }
       });
 
-      const positionsData = await positionsResponse.json();
-      console.log('📊 Positions API response:', positionsData.status ? '✅ Success' : '❌ Failed');
+      let positionsData = null;
+      if (positionsResponse.ok) {
+        positionsData = await positionsResponse.json();
+        console.log('📊 Positions API response:', positionsData);
+      }
 
-      // Step 4: Fetch REAL holdings (long-term positions)
-      console.log('🏦 Fetching REAL holdings...');
+      // Step 4: Fetch REAL holdings (your long-term investments)
+      console.log('🏦 Fetching your REAL holdings...');
       const holdingsResponse = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getAllHolding', {
         method: 'GET',
         headers: {
@@ -168,58 +168,73 @@ class BrokerAccountService {
         }
       });
 
-      const holdingsData = await holdingsResponse.json();
-      console.log('🏦 Holdings API response:', holdingsData.status ? '✅ Success' : '❌ Failed');
+      let holdingsData = null;
+      if (holdingsResponse.ok) {
+        holdingsData = await holdingsResponse.json();
+        console.log('🏦 Holdings API response:', holdingsData);
+      }
 
-      // Process REAL account data
-      if (fundsData.status && fundsData.data) {
+      // Process your REAL account data
+      if (fundsData?.status && fundsData.data) {
         const rmsData = fundsData.data;
-        const positions = positionsData.data || [];
-        const holdings = holdingsData.data || [];
+        const positions = positionsData?.data || [];
+        const holdings = holdingsData?.data || [];
 
-        console.log('✅ REAL Angel Broking data received:');
-        console.log('💰 Available Cash:', rmsData.availablecash);
-        console.log('🏦 Used Margin:', rmsData.collateral);
-        console.log('📊 Intraday Positions:', positions.length);
-        console.log('🏛️ Long-term Holdings:', holdings.length);
+        console.log('✅ YOUR REAL Angel Broking data:');
+        console.log('💰 Available Cash: ₹', rmsData.availablecash);
+        console.log('📊 Used Margin: ₹', rmsData.collateral);
+        console.log('🏦 Your Positions:', positions.length);
+        console.log('💎 Your Holdings:', holdings.length);
 
-        // Calculate REAL account values
+        // Your actual available balance
         const availableBalance = parseFloat(rmsData.availablecash || '0');
         const usedMargin = parseFloat(rmsData.collateral || '0');
         
-        // Process REAL positions (intraday)
-        const intradayPositions: BrokerPosition[] = positions.map((pos: any) => ({
-          symbol: pos.tradingsymbol,
-          quantity: parseInt(pos.netqty || '0'),
-          averagePrice: parseFloat(pos.avgprice || '0'),
-          currentPrice: parseFloat(pos.ltp || pos.avgprice || '0'),
-          pnl: parseFloat(pos.pnl || '0'),
-          pnlPercent: parseFloat(pos.pnlpercent || '0'),
-          product: pos.producttype?.toLowerCase() || 'mis'
-        }));
+        // Process your REAL trading positions
+        const allPositions: BrokerPosition[] = [];
+        
+        // Add intraday positions
+        if (positions.length > 0) {
+          positions.forEach((pos: any) => {
+            if (parseInt(pos.netqty || '0') !== 0) {
+              allPositions.push({
+                symbol: pos.tradingsymbol,
+                quantity: parseInt(pos.netqty || '0'),
+                averagePrice: parseFloat(pos.avgprice || '0'),
+                currentPrice: parseFloat(pos.ltp || pos.avgprice || '0'),
+                pnl: parseFloat(pos.pnl || '0'),
+                pnlPercent: parseFloat(pos.pnlpercent || '0'),
+                product: pos.producttype?.toLowerCase() || 'mis'
+              });
+            }
+          });
+        }
 
-        // Process REAL holdings (long-term positions)
-        const longTermPositions: BrokerPosition[] = holdings.map((holding: any) => ({
-          symbol: holding.tradingsymbol,
-          quantity: parseInt(holding.quantity || '0'),
-          averagePrice: parseFloat(holding.averageprice || '0'),
-          currentPrice: parseFloat(holding.ltp || holding.averageprice || '0'),
-          pnl: parseFloat(holding.pnl || '0'),
-          pnlPercent: parseFloat(holding.pnlpercent || '0'),
-          product: 'cnc' // Long-term holdings are typically CNC
-        }));
+        // Add long-term holdings
+        if (holdings.length > 0) {
+          holdings.forEach((holding: any) => {
+            if (parseInt(holding.quantity || '0') > 0) {
+              allPositions.push({
+                symbol: holding.tradingsymbol,
+                quantity: parseInt(holding.quantity || '0'),
+                averagePrice: parseFloat(holding.averageprice || '0'),
+                currentPrice: parseFloat(holding.ltp || holding.averageprice || '0'),
+                pnl: parseFloat(holding.pnl || '0'),
+                pnlPercent: parseFloat(holding.pnlpercent || '0'),
+                product: 'cnc'
+              });
+            }
+          });
+        }
 
-        // Combine all positions
-        const allPositions = [...intradayPositions, ...longTermPositions];
-
-        // Calculate holdings value
+        // Calculate total portfolio value
         const holdingsValue = holdings.reduce((sum: number, holding: any) => {
-          return sum + (parseFloat(holding.ltp || '0') * parseInt(holding.quantity || '0'));
+          const qty = parseInt(holding.quantity || '0');
+          const ltp = parseFloat(holding.ltp || '0');
+          return sum + (qty * ltp);
         }, 0);
 
         const totalValue = availableBalance + usedMargin + holdingsValue;
-
-        // Calculate day P&L
         const dayPnL = allPositions.reduce((sum, pos) => sum + pos.pnl, 0);
         const dayPnLPercent = totalValue > 0 ? (dayPnL / totalValue) * 100 : 0;
 
@@ -237,42 +252,39 @@ class BrokerAccountService {
         this.accountData = realAccountData;
         this.notifyListeners(realAccountData);
         
-        console.log('🎉 REAL Angel Broking account data loaded successfully!');
+        console.log('🎉 YOUR REAL ACCOUNT DATA LOADED:');
         console.log('💰 Available Balance: ₹', availableBalance.toLocaleString());
-        console.log('🏛️ Holdings Value: ₹', holdingsValue.toLocaleString());
-        console.log('📈 Total Portfolio Value: ₹', totalValue.toLocaleString());
-        console.log('📊 Total Positions:', allPositions.length);
-        console.log('📈 Day P&L: ₹', dayPnL.toLocaleString());
+        console.log('💎 Holdings Value: ₹', holdingsValue.toLocaleString());
+        console.log('📈 Total Portfolio: ₹', totalValue.toLocaleString());
+        console.log('📊 Active Positions:', allPositions.length);
 
         return realAccountData;
       }
 
-      throw new Error('Invalid response format from Angel Broking API');
+      throw new Error('Failed to get valid account data from Angel Broking');
 
     } catch (error) {
       console.error('❌ Angel Broking API Error:', error);
-      console.warn('🔄 Using enhanced simulation with realistic values...');
-      return this.getEnhancedSimulatedAccount();
+      throw error;
     }
   }
 
   private async fetchZerodhaAccountData(): Promise<BrokerAccount> {
-    console.log('🔄 Zerodha integration coming soon - using enhanced simulation');
-    return this.getEnhancedSimulatedAccount();
+    // TODO: Implement Zerodha integration
+    throw new Error('Zerodha integration not yet implemented');
   }
 
   private async fetchUpstoxAccountData(): Promise<BrokerAccount> {
-    console.log('🔄 Upstox integration coming soon - using enhanced simulation');
-    return this.getEnhancedSimulatedAccount();
+    // TODO: Implement Upstox integration
+    throw new Error('Upstox integration not yet implemented');
   }
 
   private getEnhancedSimulatedAccount(): BrokerAccount {
-    // Enhanced simulation with more realistic values for testing
-    const baseBalance = 250000; // 2.5L base
+    const baseBalance = 250000;
     const variation = (Math.random() - 0.5) * 50000;
     
     return {
-      accountId: `REAL_${this.credentials?.clientId || 'TEST123'}`,
+      accountId: `SIM_${this.credentials?.clientId || 'TEST123'}`,
       availableBalance: baseBalance + variation,
       usedMargin: 45000 + (Math.random() - 0.5) * 20000,
       totalValue: baseBalance + variation + 45000,
@@ -290,7 +302,7 @@ class BrokerAccountService {
       'INFY': 1890,
       'HDFC': 1735,
       'ICICIBANK': 1055,
-      'BANKNIFTY': 55850, // Updated to current levels
+      'BANKNIFTY': 55420,
       'NIFTY': 24750
     };
 
@@ -316,12 +328,11 @@ class BrokerAccountService {
   }
 
   private getRealisticSimulatedAccount(): BrokerAccount {
-    // Fallback simulation
     return {
       accountId: 'SIM_' + Date.now(),
-      availableBalance: 125000 + (Math.random() - 0.5) * 20000,
-      usedMargin: 75000 + (Math.random() - 0.5) * 15000,
-      totalValue: 200000 + (Math.random() - 0.5) * 25000,
+      availableBalance: 125000,
+      usedMargin: 75000,
+      totalValue: 200000,
       dayPnL: (Math.random() - 0.5) * 5000,
       dayPnLPercent: (Math.random() - 0.5) * 2.5,
       positions: this.generateEnhancedPositions(),
@@ -334,7 +345,6 @@ class BrokerAccountService {
 
     console.log('🔄 Starting REAL-TIME account updates...');
     
-    // Update account data every 30 seconds
     setInterval(async () => {
       try {
         await this.fetchRealAccountData();
