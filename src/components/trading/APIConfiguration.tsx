@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -35,6 +34,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
   const [clientId, setClientId] = useState('');
   const [pin, setPin] = useState('');
   const [totp, setTotp] = useState('');
+  const [totpKey, setTotpKey] = useState('');
   const [accessToken, setAccessToken] = useState('');
   const [requestToken, setRequestToken] = useState('');
   const [authMethod, setAuthMethod] = useState('password');
@@ -44,6 +44,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
   const [errorMessage, setErrorMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showTotp, setShowTotp] = useState(false);
+  const [showTotpKey, setShowTotpKey] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   
   const { toast } = useToast();
@@ -61,6 +62,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
         setApiSecret(credentials.apiSecret || '');
         setClientId(credentials.clientId || '');
         setPin(credentials.pin || '');
+        setTotpKey(credentials.totpKey || '');
         setAccessToken(credentials.accessToken || '');
         setRequestToken(credentials.requestToken || '');
         setAuthMethod(credentials.authMethod || 'password');
@@ -94,8 +96,13 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
       return;
     }
 
-    if (broker === 'angel' && (!pin || !totp)) {
-      setErrorMessage('Angel Broking requires PIN and TOTP (6-digit authenticator code)');
+    if (broker === 'angel' && !pin) {
+      setErrorMessage('Angel Broking requires PIN');
+      return;
+    }
+
+    if (broker === 'angel' && !totp && !totpKey) {
+      setErrorMessage('Angel Broking requires either TOTP Key (recommended) or manual TOTP code');
       return;
     }
 
@@ -117,6 +124,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
         clientId,
         pin,
         totp: broker === 'angel' ? totp : undefined,
+        totpKey: broker === 'angel' ? totpKey : undefined,
         accessToken: broker === 'angel' ? 
           (authMethod === 'session' ? sessionToken : pin) : 
           accessToken,
@@ -183,6 +191,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
         apiSecret: broker === 'angel' ? clientId : apiSecret,
         clientId,
         pin,
+        totpKey,
         accessToken,
         requestToken,
         authMethod,
@@ -209,6 +218,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
     setClientId('');
     setPin('');
     setTotp('');
+    setTotpKey('');
     setAccessToken('');
     setRequestToken('');
     setSessionToken('');
@@ -362,7 +372,37 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="totp">TOTP (Authenticator Code)</Label>
+                  <Label htmlFor="totpKey">TOTP Key (Recommended)</Label>
+                  <div className="relative">
+                    <Input
+                      id="totpKey"
+                      type={showTotpKey ? "text" : "password"}
+                      value={totpKey}
+                      onChange={(e) => setTotpKey(e.target.value)}
+                      placeholder="Base32 encoded TOTP secret"
+                      disabled={isAuthenticated}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3"
+                      onClick={() => setShowTotpKey(!showTotpKey)}
+                      disabled={isAuthenticated}
+                    >
+                      {showTotpKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  <div className="text-xs text-blue-600 mt-1">
+                    Auto-generates TOTP codes. Get this from Angel SmartAPI portal.
+                  </div>
+                </div>
+              </div>
+
+              {/* Manual TOTP - only show if no TOTP Key */}
+              {!totpKey && (
+                <div>
+                  <Label htmlFor="totp">Manual TOTP (Authenticator Code)</Label>
                   <div className="relative">
                     <Input
                       id="totp"
@@ -388,7 +428,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                     Enter the current 6-digit code from your authenticator app
                   </div>
                 </div>
-              </div>
+              )}
               
               {/* Angel Auth Method */}
               <div>
@@ -497,10 +537,15 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                 Angel Broking TOTP Setup
               </div>
               <div className="text-amber-700">
-                • Download Google Authenticator or similar TOTP app
-                • Scan the QR code from your Angel Broking account settings
-                • Enter the current 6-digit code in the TOTP field above
-                • TOTP codes refresh every 30 seconds
+                <strong>Option 1 (Recommended): TOTP Key</strong>
+                <br />• Get your TOTP Key from Angel SmartAPI portal
+                <br />• Enter it in the TOTP Key field above
+                <br />• System will auto-generate codes for you
+                <br /><br />
+                <strong>Option 2: Manual TOTP</strong>
+                <br />• Download Google Authenticator or similar TOTP app
+                <br />• Scan the QR code from your Angel Broking account settings
+                <br />• Enter the current 6-digit code manually each time
               </div>
             </div>
           )}
