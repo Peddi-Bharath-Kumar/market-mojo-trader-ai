@@ -97,7 +97,9 @@ export class IntegratedTradingEngine {
 
   private async closeAllIntradayPositions(): Promise<void> {
     const positions = marketDataService.getPositions();
-    const intradayPositions = positions.filter(pos => pos.product === 'mis'); // MIS = Intraday
+    const intradayPositions = positions.filter(pos => 
+      pos.product === 'mis' || pos.type === 'intraday' // Handle both product and type properties
+    );
     
     for (const position of intradayPositions) {
       try {

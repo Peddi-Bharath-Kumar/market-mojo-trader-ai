@@ -57,6 +57,7 @@ export interface Position {
   sector: string;
   liquidityScore: number;
   correlationRisk: number;
+  product?: 'mis' | 'cnc' | 'nrml'; // Add product property
 }
 
 export class TradingRobotEngine {
@@ -635,7 +636,9 @@ export class TradingRobotEngine {
         partialProfitBooking: this.config.partialProfitBooking,
         maxDailyLoss: this.config.maxDailyLoss,
         correlationLimit: this.config.correlationLimit
-      }
+      },
+      trailingStopEnabled: this.config.trailingStopEnabled, // Add this for compatibility
+      partialProfitBooking: this.config.partialProfitBooking // Add this for compatibility
     };
   }
 }

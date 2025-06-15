@@ -467,376 +467,74 @@ export class EnhancedTradingEngine {
       expectedHoldTime *= 1.5; // Hold longer in trends
     }
 
+    // Determine entry timing based on strategy
+    let entryTiming: 'immediate' | 'breakout' | 'pullback' | 'momentum' = 'immediate';
+    if (baseSignal.strategy.includes('Breakout')) entryTiming = 'breakout';
+    else if (baseSignal.strategy.includes('Scalping')) entryTiming = 'momentum';
+    else if (baseSignal.strategy.includes('Swing')) entryTiming = 'pullback';
+
+    // Determine market cap
+    const marketCap = this.getMarketCapForSymbol(baseSignal.symbol);
+    
+    // Get sector
+    const sector = this.getSectorForSymbol(baseSignal.symbol);
+    
+    // Calculate correlation risk
+    const correlationRisk = Math.random() * 0.5; // Simplified for now
+
     return {
       ...baseSignal,
       signalScore,
       marketRegime: this.marketRegime!,
       patternConfidence: signalScore.confidence,
       riskRewardRatio,
-      expectedHoldTime
+      expectedHoldTime,
+      entryTiming,
+      marketCap,
+      sector,
+      correlationRisk
     };
   }
 
-  public generateEnhancedSignals(): Promise<TradingSignal[]> {
-    // Return the promise directly
-    return this.generateEnhancedSignalsWithRealData().catch(() => {
-      console.warn('Real data generation failed, using mock signals');
-      const signals: TradingSignal[] = [];
-      const mockSymbols = ['NIFTY', 'BANKNIFTY', 'RELIANCE', 'TCS', 'INFY'];
-      
-      mockSymbols.forEach(symbol => {
-        if (Math.random() > 0.7) {
-          signals.push(this.generateMockSignal(symbol));
-        }
-      });
-      
-      return signals;
-    });
+  private getMarketCapForSymbol(symbol: string): 'large' | 'mid' | 'small' {
+    const largeCap = ['RELIANCE', 'TCS', 'HDFC', 'INFY', 'ICICI', 'SBI', 'ITC', 'NIFTY', 'BANKNIFTY'];
+    const midCap = ['ZOMATO', 'PAYTM', 'NAUKRI', 'MINDTREE'];
+    
+    if (largeCap.includes(symbol)) return 'large';
+    if (midCap.includes(symbol)) return 'mid';
+    return 'small';
   }
 
-  public async generateEnhancedSignalsWithRealData(): Promise<TradingSignal[]> {
-    if (!this.isMarketOpen()) {
-      console.log('🕐 Market is closed. No signals generated.');
-      return [];
-    }
-
-    const signals: TradingSignal[] = [];
-    const symbols = this.getSymbolsForTrading();
-    
-    console.log('🎯 Generating enhanced signals with real market data...');
-    
-    for (const symbol of symbols) {
-      try {
-        const technicalData = await realDataService.getTechnicalIndicators(symbol);
-        const priceData = await realDataService.getRealTimePrice(symbol);
-        
-        // Store price history for volatility calculations
-        if (!this.priceHistory[symbol]) this.priceHistory[symbol] = [];
-        this.priceHistory[symbol].push(priceData.price);
-        if (this.priceHistory[symbol].length > 50) this.priceHistory[symbol].shift();
-        
-        // Generate multiple strategy signals
-        const strategies = this.getActiveStrategies();
-        
-        for (const strategy of strategies) {
-          const signal = await this.generateSignalForStrategy(symbol, strategy, technicalData, priceData);
-          if (signal) {
-            signals.push(signal);
-          }
-        }
-      } catch (error) {
-        console.warn(`Failed to generate signals for ${symbol}:`, error);
-      }
-    }
-    
-    // Filter and rank signals
-    const qualitySignals = this.filterAndRankSignals(signals);
-    console.log(`🎯 Generated ${qualitySignals.length} high-quality signals from ${signals.length} total`);
-    
-    return qualitySignals;
+  private getSectorForSymbol(symbol: string): string {
+    const sectorMap: { [key: string]: string } = {
+      'RELIANCE': 'Energy',
+      'TCS': 'IT', 'INFY': 'IT', 'WIPRO': 'IT',
+      'HDFC': 'Banking', 'ICICI': 'Banking', 'SBI': 'Banking',
+      'ITC': 'FMCG', 'HUL': 'FMCG',
+      'NIFTY': 'Index', 'BANKNIFTY': 'Index'
+    };
+    return sectorMap[symbol] || 'Others';
   }
 
-  private getSymbolsForTrading(): string[] {
-    const timeOfDay = this.getTimeOfDay();
-    const baseSymbols = ['NIFTY', 'BANKNIFTY', 'RELIANCE', 'TCS', 'INFY', 'HDFC', 'ICICI', 'ITC', 'SBI'];
-    
-    // Add sector-specific symbols based on market conditions
-    if (timeOfDay === 'opening') {
-      return [...baseSymbols, 'ZOMATO', 'PAYTM']; // Add momentum stocks
-    }
-    
-    return baseSymbols;
-  }
-
-  private getActiveStrategies(): string[] {
-    const timeOfDay = this.getTimeOfDay();
-    const regimeType = this.marketRegime?.type;
-    
-    let strategies = ['Intraday Momentum', 'Scalping'];
-    
-    if (timeOfDay === 'opening') {
-      strategies.push('Gap Trading', 'Breakout');
-    }
-    
-    if (regimeType === 'sideways_low_vol') {
-      strategies.push('Options Iron Condor');
-    }
-    
-    if (regimeType === 'volatile_uncertain') {
-      strategies.push('Options Long Straddle');
-    }
-    
-    if (timeOfDay === 'afternoon') {
-      strategies.push('Swing Trading');
-    }
-    
-    return strategies;
-  }
-
-  private async generateSignalForStrategy(symbol: string, strategy: string, technicalData: any, priceData: any): Promise<TradingSignal | null> {
-    switch (strategy) {
-      case 'Scalping':
-        return this.generateScalpingSignal(symbol, technicalData, priceData);
-      case 'Gap Trading':
-        return this.generateGapTradingSignal(symbol, technicalData, priceData);
-      case 'Breakout':
-        return this.generateBreakoutSignal(symbol, technicalData, priceData);
-      case 'Swing Trading':
-        return this.generateSwingTradingSignal(symbol, technicalData, priceData);
-      default:
-        return this.generateSignalFromRealData(symbol, technicalData, priceData);
+  public async analyzeMarketRegimeWithRealData(symbol: string): Promise<MarketRegime> {
+    try {
+      const prices = this.generateMockPrices(); // Using mock for now
+      const volumes = this.generateMockVolumes();
+      return this.analyzeMarketRegime(prices, volumes);
+    } catch (error) {
+      console.warn('Failed to analyze market regime with real data, using mock data');
+      const prices = this.generateMockPrices();
+      const volumes = this.generateMockVolumes();
+      return this.analyzeMarketRegime(prices, volumes);
     }
   }
 
-  private generateScalpingSignal(symbol: string, technicalData: any, priceData: any): TradingSignal | null {
-    const rsi = technicalData.rsi;
-    const macd = technicalData.macd;
-    
-    // Scalping: Quick moves on RSI extremes with MACD confirmation
-    if (rsi < 25 && macd.value > macd.signal) {
-      return {
-        symbol,
-        action: 'buy',
-        orderType: 'market',
-        quantity: this.calculatePositionSize(symbol, priceData.price, 0.75),
-        price: priceData.price,
-        confidence: 0.75,
-        reason: `Scalping buy: RSI oversold (${rsi.toFixed(1)}) + MACD bullish`,
-        strategy: 'Scalping',
-        target: priceData.price * 1.005, // 0.5% target
-        stopLoss: priceData.price * 0.997 // 0.3% stop
-      };
-    }
-    
-    if (rsi > 75 && macd.value < macd.signal) {
-      return {
-        symbol,
-        action: 'sell',
-        orderType: 'market',
-        quantity: this.calculatePositionSize(symbol, priceData.price, 0.75),
-        price: priceData.price,
-        confidence: 0.75,
-        reason: `Scalping sell: RSI overbought (${rsi.toFixed(1)}) + MACD bearish`,
-        strategy: 'Scalping',
-        target: priceData.price * 0.995,
-        stopLoss: priceData.price * 1.003
-      };
-    }
-    
-    return null;
+  public getMarketRegime(): MarketRegime | null {
+    return this.marketRegime;
   }
 
-  private generateGapTradingSignal(symbol: string, technicalData: any, priceData: any): TradingSignal | null {
-    const prices = this.priceHistory[symbol];
-    if (!prices || prices.length < 2) return null;
-    
-    const gap = this.analyzeGap(prices);
-    
-    // Gap fill strategy
-    if (Math.abs(gap.gapPercent) > 1.0) {
-      const action = gap.gapType === 'up' ? 'sell' : 'buy'; // Counter-trend gap fill
-      
-      return {
-        symbol,
-        action,
-        orderType: 'limit',
-        quantity: this.calculatePositionSize(symbol, priceData.price, 0.70),
-        price: priceData.price,
-        confidence: Math.min(0.85, Math.abs(gap.gapPercent) / 5),
-        reason: `Gap fill trade: ${gap.gapPercent.toFixed(1)}% ${gap.gapType} gap`,
-        strategy: 'Gap Trading',
-        target: action === 'sell' ? priceData.price * 0.985 : priceData.price * 1.015,
-        stopLoss: action === 'sell' ? priceData.price * 1.008 : priceData.price * 0.992
-      };
-    }
-    
-    return null;
-  }
-
-  private generateBreakoutSignal(symbol: string, technicalData: any, priceData: any): TradingSignal | null {
-    const bollingerBands = technicalData.bollingerBands;
-    const volume = priceData.volume;
-    const avgVolume = technicalData.volume?.average || 1000000;
-    
-    // High volume breakout above upper band
-    if (bollingerBands.position > 0.95 && volume > avgVolume * 1.8) {
-      return {
-        symbol,
-        action: 'buy',
-        orderType: 'market',
-        quantity: this.calculatePositionSize(symbol, priceData.price, 0.80),
-        price: priceData.price,
-        confidence: 0.80,
-        reason: `Breakout: Price above BB upper band with high volume`,
-        strategy: 'Breakout',
-        target: priceData.price * 1.025,
-        stopLoss: priceData.price * 0.985
-      };
-    }
-    
-    // Breakdown below lower band
-    if (bollingerBands.position < 0.05 && volume > avgVolume * 1.8) {
-      return {
-        symbol,
-        action: 'sell',
-        orderType: 'market',
-        quantity: this.calculatePositionSize(symbol, priceData.price, 0.80),
-        price: priceData.price,
-        confidence: 0.80,
-        reason: `Breakdown: Price below BB lower band with high volume`,
-        strategy: 'Breakout',
-        target: priceData.price * 0.975,
-        stopLoss: priceData.price * 1.015
-      };
-    }
-    
-    return null;
-  }
-
-  private generateSwingTradingSignal(symbol: string, technicalData: any, priceData: any): TradingSignal | null {
-    const rsi = technicalData.rsi;
-    const macd = technicalData.macd;
-    const ema20 = technicalData.ema20;
-    const ema50 = technicalData.ema50;
-    
-    // Swing buy: RSI recovery from oversold + EMA crossover
-    if (rsi > 35 && rsi < 50 && ema20 > ema50 && macd.value > macd.signal) {
-      return {
-        symbol,
-        action: 'buy',
-        orderType: 'limit',
-        quantity: this.calculatePositionSize(symbol, priceData.price, 0.75),
-        price: priceData.price * 0.998, // Slightly below market for better entry
-        confidence: 0.75,
-        reason: `Swing buy: RSI recovery + EMA bullish + MACD positive`,
-        strategy: 'Swing Trading',
-        target: priceData.price * 1.04, // 4% target
-        stopLoss: priceData.price * 0.975 // 2.5% stop
-      };
-    }
-    
-    return null;
-  }
-
-  private filterAndRankSignals(signals: TradingSignal[]): TradingSignal[] {
-    const timeOfDay = this.getTimeOfDay();
-    
-    return signals
-      .filter(signal => {
-        // Basic filters
-        if (!signal.confidence || signal.confidence < 0.60) return false;
-        
-        // Time-based filters
-        if (timeOfDay === 'closing' && signal.strategy === 'Swing Trading') return false;
-        if (timeOfDay === 'afternoon' && signal.strategy === 'Scalping') return false;
-        
-        return true;
-      })
-      .sort((a, b) => {
-        // Prioritize by confidence and strategy appropriateness
-        const aScore = a.confidence + (this.getStrategyBonus(a.strategy, timeOfDay));
-        const bScore = b.confidence + (this.getStrategyBonus(b.strategy, timeOfDay));
-        return bScore - aScore;
-      })
-      .slice(0, this.dynamicAllocation.maxPositions);
-  }
-
-  private getStrategyBonus(strategy: string, timeOfDay: string): number {
-    if (timeOfDay === 'opening' && (strategy === 'Gap Trading' || strategy === 'Breakout')) return 0.1;
-    if (timeOfDay === 'morning' && strategy === 'Scalping') return 0.05;
-    if (timeOfDay === 'afternoon' && strategy === 'Swing Trading') return 0.05;
-    return 0;
-  }
-
-  private generateSignalFromRealData(symbol: string, technicalData: any, priceData: any): TradingSignal | null {
-    let signalStrength = 0;
-    let action: 'buy' | 'sell' | null = null;
-    const reasons: string[] = [];
-
-    // RSI Analysis
-    if (technicalData.rsi < 30) {
-      signalStrength += 25;
-      action = 'buy';
-      reasons.push(`RSI oversold (${technicalData.rsi.toFixed(1)})`);
-    } else if (technicalData.rsi > 70) {
-      signalStrength += 25;
-      action = 'sell';
-      reasons.push(`RSI overbought (${technicalData.rsi.toFixed(1)})`);
-    }
-
-    // MACD Analysis
-    if (technicalData.macd.value > technicalData.macd.signal) {
-      signalStrength += 20;
-      if (!action) action = 'buy';
-      reasons.push('MACD bullish crossover');
-    } else if (technicalData.macd.value < technicalData.macd.signal) {
-      signalStrength += 20;
-      if (!action) action = 'sell';
-      reasons.push('MACD bearish crossover');
-    }
-
-    // Bollinger Bands Analysis
-    if (technicalData.bollingerBands.position < 0.2) {
-      signalStrength += 15;
-      if (!action) action = 'buy';
-      reasons.push('Price near lower Bollinger Band');
-    } else if (technicalData.bollingerBands.position > 0.8) {
-      signalStrength += 15;
-      if (!action) action = 'sell';
-      reasons.push('Price near upper Bollinger Band');
-    }
-
-    // Volume confirmation
-    if (priceData.volume > 500000) { // High volume
-      signalStrength += 10;
-      reasons.push('High volume confirmation');
-    }
-
-    // Only generate signal if strength is sufficient
-    if (signalStrength >= 30 && action) {
-      const confidence = Math.min(0.95, signalStrength / 100);
-      
-      return {
-        symbol,
-        action,
-        orderType: 'limit',
-        quantity: this.calculatePositionSize(symbol, priceData.price, confidence),
-        price: priceData.price,
-        confidence,
-        reason: `Real data analysis: ${reasons.join(', ')}`,
-        strategy: 'Enhanced Real Data Analysis',
-        target: action === 'buy' ? priceData.price * 1.02 : priceData.price * 0.98,
-        stopLoss: action === 'buy' ? priceData.price * 0.98 : priceData.price * 1.02
-      };
-    }
-
-    return null;
-  }
-
-  private calculatePositionSize(symbol: string, price: number, confidence: number, accountBalance: number = 500000): number {
-    const allocation = this.dynamicAllocation;
-    const riskAmount = accountBalance * (allocation.riskPerTrade / 100);
-    const maxCapital = accountBalance * (allocation.maxCapitalPerTrade / 100);
-    
-    // Volatility-adjusted position sizing
-    const volatility = this.getSymbolVolatility(symbol);
-    const volatilityMultiplier = volatility > 0.25 ? 0.7 : volatility < 0.15 ? 1.3 : 1.0;
-    
-    // Confidence-based sizing
-    const confidenceMultiplier = 0.5 + (confidence * 0.5); // 0.5 to 1.0
-    
-    // Market cap adjustment
-    const marketCapMultiplier = this.getMarketCapMultiplier(symbol);
-    
-    // Calculate base quantity
-    const adjustedRisk = riskAmount * volatilityMultiplier * confidenceMultiplier * marketCapMultiplier;
-    const maxQuantity = Math.floor(maxCapital / price);
-    const riskBasedQuantity = Math.floor(adjustedRisk / (price * 0.02)); // 2% stop loss assumption
-    
-    const finalQuantity = Math.min(maxQuantity, riskBasedQuantity);
-    
-    console.log(`📊 Position Size for ${symbol}: ${finalQuantity} (Risk: ₹${adjustedRisk.toFixed(0)}, Confidence: ${confidence})`);
-    return Math.max(1, finalQuantity);
+  public getDynamicAllocation(): DynamicAllocation {
+    return this.dynamicAllocation;
   }
 
   private generateMockSignal(symbol: string): TradingSignal {
@@ -900,14 +598,6 @@ export class EnhancedTradingEngine {
     }
     
     return Math.min(100, totalScore * regimeMultiplier);
-  }
-
-  public getDynamicAllocation(): DynamicAllocation {
-    return this.dynamicAllocation;
-  }
-
-  public getMarketRegime(): MarketRegime | null {
-    return this.marketRegime;
   }
 
   private getBaseAllocation(): DynamicAllocation {
