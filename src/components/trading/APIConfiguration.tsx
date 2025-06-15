@@ -19,7 +19,7 @@ import {
   EyeOff
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { brokerAccountService } from '@/services/BrokerAccountService';
+import { brokerAccountService, BrokerCredentials } from '@/services/BrokerAccountService';
 import { marketDataService } from '@/services/MarketDataService';
 
 interface APIConfigurationProps {
@@ -28,7 +28,7 @@ interface APIConfigurationProps {
 }
 
 export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured, isConfigured }) => {
-  const [broker, setBroker] = useState('');
+  const [broker, setBroker] = useState<BrokerCredentials['broker'] | ''>('');
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
   const [clientId, setClientId] = useState('');
@@ -82,7 +82,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
   }, [onConfigured]);
 
   useEffect(() => {
-    if (isConfigured && brokerAccountService.getCurrentAccount()) {
+    if (isConfigured) {
       const acc = brokerAccountService.getCurrentAccount();
       if (acc?.hasPortfolioDataAccess) {
         setPortfolioAccessInfo('full');
@@ -133,7 +133,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
     try {
       console.log('🔄 Testing broker connection...');
       
-      const credentials = {
+      const credentials: BrokerCredentials & { [key: string]: any } = {
         broker,
         apiKey,
         apiSecret: broker === 'angel' ? clientId : apiSecret,
@@ -151,7 +151,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
       };
 
       // Set credentials in broker service
-      brokerAccountService.setCredentials(credentials);
+      brokerAccountService.setCredentials(credentials as BrokerCredentials);
       
       // Test actual connection by fetching account data
       console.log('🧪 Testing real broker API connection...');
@@ -343,7 +343,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
           {/* Broker Selection */}
           <div>
             <Label htmlFor="broker">Select Broker</Label>
-            <Select value={broker} onValueChange={setBroker} disabled={isAuthenticated}>
+            <Select value={broker} onValueChange={(value) => setBroker(value as BrokerCredentials['broker'])} disabled={isAuthenticated}>
               <SelectTrigger>
                 <SelectValue placeholder="Choose your broker" />
               </SelectTrigger>

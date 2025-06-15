@@ -24,7 +24,7 @@ interface BrokerPosition {
 }
 
 interface BrokerCredentials {
-  broker: 'angel' | 'zerodha';
+  broker: 'angel' | 'zerodha' | 'upstox';
   apiKey: string;
   apiSecret: string;
   accessToken: string;
@@ -37,6 +37,10 @@ class BrokerAccountService {
   private accountData: BrokerAccount | null = null;
   private realTimeUpdatesActive = false;
   private portfolioError: string | null = null;
+
+  getCurrentAccount(): BrokerAccount | null {
+    return this.accountData;
+  }
 
   setCredentials(credentials: BrokerCredentials) {
     this.credentials = credentials;
@@ -56,6 +60,7 @@ class BrokerAccountService {
         case 'zerodha':
           return await this.fetchZerodhaAccountData();
         default:
+          console.warn(`Broker ${this.credentials.broker} not fully supported for fetching account data, using simulated data.`);
           return this.getSimulatedAccountData();
       }
     } catch (error: any) {

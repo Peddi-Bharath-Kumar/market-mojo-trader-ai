@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,7 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ShoppingCart, TrendingUp, TrendingDown, Clock, CheckCircle, XCircle } from 'lucide-react';
-import { orderExecutionService, OrderResponse } from '@/services/OrderExecutionService';
+import { orderExecutionService, OrderResponse, OrderRequest } from '@/services/OrderExecutionService';
 import { useToast } from '@/hooks/use-toast';
 
 interface OrderExecutionProps {
@@ -48,11 +47,17 @@ export const OrderExecution: React.FC<OrderExecutionProps> = ({ isTrading }) => 
     }
 
     try {
-      await orderExecutionService.placeOrder({
-        ...newOrder,
+      const orderPayload: Omit<OrderRequest, 'stopLoss' | 'target'> = {
+        action: newOrder.type,
         symbol: newOrder.symbol.toUpperCase(),
+        orderType: newOrder.orderType,
+        quantity: newOrder.quantity,
+        product: newOrder.product,
+        validity: newOrder.validity,
         price: newOrder.orderType === 'limit' || newOrder.orderType === 'stop' ? newOrder.price : undefined,
-      });
+      };
+
+      await orderExecutionService.placeOrder(orderPayload);
       toast({
         title: "Order Placed",
         description: `${newOrder.type.toUpperCase()} ${newOrder.quantity} ${newOrder.symbol} order has been sent.`,
