@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TradingRobotDashboard } from './TradingRobotDashboard';
@@ -7,6 +6,7 @@ import { RealAccountOverview } from './RealAccountOverview';
 import { VirtualTradingMode } from './VirtualTradingMode';
 import { marketDataService } from '@/services/MarketDataService';
 import { brokerAccountService } from '@/services/BrokerAccountService';
+import { AITradingPanel } from './AITradingPanel';
 
 export const TradingDashboard = () => {
   const [apiConfigured, setApiConfigured] = useState(false);
@@ -47,15 +47,16 @@ export const TradingDashboard = () => {
           🇮🇳 AI Trading Platform
         </h1>
         <p className="text-gray-600 mt-2">
-          Professional trading system optimized for Indian markets (NSE/BSE)
+          Professional trading system with AI assistant optimized for Indian markets (NSE/BSE)
         </p>
       </div>
 
       <Tabs defaultValue="setup" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="setup">🔧 API Setup</TabsTrigger>
           <TabsTrigger value="account">💼 Account</TabsTrigger>
-          <TabsTrigger value="robot">🤖 AI Robot</TabsTrigger>
+          <TabsTrigger value="ai">🤖 AI Assistant</TabsTrigger>
+          <TabsTrigger value="robot">⚡ Auto Trading</TabsTrigger>
           <TabsTrigger value="virtual">🎮 Virtual Trading</TabsTrigger>
           <TabsTrigger value="analysis">📊 Analysis</TabsTrigger>
         </TabsList>
@@ -71,6 +72,11 @@ export const TradingDashboard = () => {
         {/* Real Account Overview */}
         <TabsContent value="account">
           <RealAccountOverview />
+        </TabsContent>
+
+        {/* AI Trading Assistant */}
+        <TabsContent value="ai">
+          <AITradingPanel />
         </TabsContent>
 
         {/* AI Trading Robot */}

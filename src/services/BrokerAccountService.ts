@@ -1,4 +1,3 @@
-
 interface BrokerAccount {
   accountId: string;
   availableBalance: number;
@@ -30,6 +29,8 @@ interface BrokerOrder {
   timestamp: Date;
 }
 
+import { zerodhaKiteService } from './ZerodhaKiteService';
+
 class BrokerAccountService {
   private credentials: any = null;
   private accountData: BrokerAccount | null = null;
@@ -42,6 +43,16 @@ class BrokerAccountService {
     this.isUsingRealData = true;
     console.log('🔑 Broker credentials configured for:', credentials.broker);
     console.log('📊 REAL account data mode activated');
+    
+    // Configure the appropriate broker service
+    if (credentials.broker === 'zerodha') {
+      zerodhaKiteService.setCredentials({
+        apiKey: credentials.apiKey,
+        apiSecret: credentials.apiSecret,
+        accessToken: credentials.accessToken,
+        requestToken: credentials.requestToken
+      });
+    }
   }
 
   async fetchRealAccountData(): Promise<BrokerAccount> {
@@ -270,8 +281,95 @@ class BrokerAccountService {
   }
 
   private async fetchZerodhaAccountData(): Promise<BrokerAccount> {
-    // TODO: Implement Zerodha integration
-    throw new Error('Zerodha integration not yet implemented');
+    console.log('🔗 Connecting to Zerodha Kite Connect for REAL account data...');
+    
+    try {
+      // Fetch real margins (account balance)
+      const margins = await zerodhaKiteService.getMargins();
+      const availableBalance = margins.equity.available.cash;
+      const usedMargin = margins.equity.utilised.span + margins.equity.utilised.exposure;
+      
+      console.log('💰 Zerodha available cash: ₹', availableBalance.toLocaleString());
+      console.log('📊 Zerodha used margin: ₹', usedMargin.toLocaleString());
+
+      // Fetch real positions
+      const positions = await zerodhaKiteService.getPositions();
+      console.log('📊 Zerodha positions:', positions.length);
+
+      // Fetch real holdings
+      const holdings = await zerodhaKiteService.getHoldings();
+      console.log('🏦 Zerodha holdings:', holdings.length);
+
+      // Process positions
+      const allPositions: BrokerPosition[] = [];
+      
+      // Add trading positions
+      positions.forEach((pos: any) => {
+        if (parseInt(pos.quantity || '0') !== 0) {
+          allPositions.push({
+            symbol: pos.tradingsymbol,
+            quantity: parseInt(pos.quantity || '0'),
+            averagePrice: parseFloat(pos.average_price || '0'),
+            currentPrice: parseFloat(pos.last_price || pos.close_price || '0'),
+            pnl: parseFloat(pos.pnl || '0'),
+            pnlPercent: pos.average_price > 0 ? ((parseFloat(pos.last_price || '0') - parseFloat(pos.average_price || '0')) / parseFloat(pos.average_price || '0')) * 100 : 0,
+            product: pos.product?.toLowerCase() || 'mis'
+          });
+        }
+      });
+
+      // Add holdings as CNC positions
+      holdings.forEach((holding: any) => {
+        if (parseInt(holding.quantity || '0') > 0) {
+          allPositions.push({
+            symbol: holding.tradingsymbol,
+            quantity: parseInt(holding.quantity || '0'),
+            averagePrice: parseFloat(holding.average_price || '0'),
+            currentPrice: parseFloat(holding.last_price || holding.close_price || '0'),
+            pnl: parseFloat(holding.pnl || '0'),
+            pnlPercent: holding.average_price > 0 ? ((parseFloat(holding.last_price || '0') - parseFloat(holding.average_price || '0')) / parseFloat(holding.average_price || '0')) * 100 : 0,
+            product: 'cnc'
+          });
+        }
+      });
+
+      // Calculate total portfolio value
+      const holdingsValue = holdings.reduce((sum: number, holding: any) => {
+        const qty = parseInt(holding.quantity || '0');
+        const ltp = parseFloat(holding.last_price || '0');
+        return sum + (qty * ltp);
+      }, 0);
+
+      const totalValue = availableBalance + usedMargin + holdingsValue;
+      const dayPnL = allPositions.reduce((sum, pos) => sum + pos.pnl, 0);
+      const dayPnLPercent = totalValue > 0 ? (dayPnL / totalValue) * 100 : 0;
+
+      const realAccountData: BrokerAccount = {
+        accountId: this.credentials.clientId || 'ZERODHA',
+        availableBalance,
+        usedMargin,
+        totalValue,
+        dayPnL,
+        dayPnLPercent,
+        positions: allPositions,
+        orders: []
+      };
+
+      this.accountData = realAccountData;
+      this.notifyListeners(realAccountData);
+      
+      console.log('🎉 YOUR REAL ZERODHA ACCOUNT DATA LOADED:');
+      console.log('💰 Available Balance: ₹', availableBalance.toLocaleString());
+      console.log('💎 Holdings Value: ₹', holdingsValue.toLocaleString());
+      console.log('📈 Total Portfolio: ₹', totalValue.toLocaleString());
+      console.log('📊 Active Positions:', allPositions.length);
+
+      return realAccountData;
+
+    } catch (error) {
+      console.error('❌ Zerodha Kite Connect API Error:', error);
+      throw error;
+    }
   }
 
   private async fetchUpstoxAccountData(): Promise<BrokerAccount> {

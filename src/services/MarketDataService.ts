@@ -1,4 +1,3 @@
-
 interface MarketTick {
   symbol: string;
   price: number;
@@ -44,6 +43,8 @@ interface Position {
   type: 'long' | 'short';
 }
 
+import { zerodhaKiteService } from './ZerodhaKiteService';
+
 class MarketDataService {
   private ws: WebSocket | null = null;
   private subscriptions = new Set<string>();
@@ -61,6 +62,15 @@ class MarketDataService {
     this.isRealDataMode = true;
     console.log('📊 Market Data API Config set for:', config.broker);
     console.log('🔴 Real-time market data mode enabled');
+    
+    // Configure broker-specific services
+    if (config.broker === 'zerodha') {
+      zerodhaKiteService.setCredentials({
+        apiKey: config.apiKey,
+        apiSecret: config.apiSecret,
+        accessToken: config.accessToken || ''
+      });
+    }
   }
 
   async connect() {
@@ -75,6 +85,8 @@ class MarketDataService {
     try {
       if (this.apiConfig.broker === 'angel') {
         await this.connectAngelBroking();
+      } else if (this.apiConfig.broker === 'zerodha') {
+        await this.connectZerodhaKite();
       } else {
         console.warn('Unknown broker, using enhanced simulation');
         this.simulateEnhancedMarketData();
@@ -125,6 +137,83 @@ class MarketDataService {
       console.error('❌ Angel Broking REAL market data failed:', error);
       this.simulateEnhancedMarketData();
     }
+  }
+
+  private async connectZerodhaKite() {
+    try {
+      console.log('🔗 Connecting to Zerodha Kite Connect for REAL market data...');
+      
+      await this.startZerodhaRealTimeFeed();
+      console.log('✅ Zerodha Kite Connect REAL market data connected');
+      
+    } catch (error) {
+      console.error('❌ Zerodha Kite Connect REAL market data failed:', error);
+      this.simulateEnhancedMarketData();
+    }
+  }
+
+  private async startZerodhaRealTimeFeed() {
+    console.log('📈 Starting Zerodha REAL-TIME market price feed...');
+    
+    const fetchZerodhaRealPrices = async () => {
+      try {
+        const instruments = [
+          'NSE:NIFTY 50',
+          'NSE:NIFTY BANK',
+          'NSE:RELIANCE',
+          'NSE:TCS',
+          'NSE:INFY',
+          'NSE:HDFC',
+          'NSE:ICICIBANK',
+          'NSE:SBIN',
+          'NSE:ITC'
+        ];
+        
+        // Fetch real quotes from Zerodha
+        const quotes = await zerodhaKiteService.getQuote(instruments);
+        
+        for (const [instrument, data] of Object.entries(quotes)) {
+          const symbol = instrument.split(':')[1].replace(' ', '');
+          const realTick = this.processZerodhaQuoteData(symbol, data);
+          this.realTimeMarketData.set(symbol, realTick);
+          this.notifyListeners(symbol, realTick);
+          console.log(`✅ REAL Zerodha price ${symbol}: ₹${realTick.ltp.toFixed(2)}`);
+        }
+        
+      } catch (error) {
+        console.warn('Zerodha real price fetch failed:', error);
+        // Fallback to simulation for this iteration
+        this.subscriptions.forEach(symbol => {
+          const fallbackTick = this.getCurrentMarketPrice(symbol);
+          this.notifyListeners(symbol, fallbackTick);
+        });
+      }
+    };
+
+    await fetchZerodhaRealPrices();
+    
+    const isMarketOpen = this.isMarketOpen(new Date());
+    const updateInterval = isMarketOpen ? 3000 : 30000; // 3 seconds during market hours
+    
+    setInterval(fetchZerodhaRealPrices, updateInterval);
+    console.log(`🔄 Zerodha REAL price updates every ${updateInterval/1000}s`);
+  }
+
+  private processZerodhaQuoteData(symbol: string, data: any): MarketTick {
+    return {
+      symbol,
+      price: parseFloat(data.last_price || data.ohlc?.close || '0'),
+      change: parseFloat(data.net_change || '0'),
+      changePercent: parseFloat(data.net_change || '0') / parseFloat(data.ohlc?.close || '1') * 100,
+      volume: parseInt(data.volume || '0'),
+      high: parseFloat(data.ohlc?.high || data.last_price || '0'),
+      low: parseFloat(data.ohlc?.low || data.last_price || '0'),
+      open: parseFloat(data.ohlc?.open || data.last_price || '0'),
+      bid: parseFloat(data.depth?.buy?.[0]?.price || data.last_price || '0'),
+      ask: parseFloat(data.depth?.sell?.[0]?.price || data.last_price || '0'),
+      ltp: parseFloat(data.last_price || data.ohlc?.close || '0'),
+      timestamp: Date.now()
+    };
   }
 
   private async startRealTimePriceFeed() {
