@@ -1,4 +1,3 @@
-
 import { Position, TradingSignal } from './types';
 
 export class PositionManager {
@@ -53,6 +52,22 @@ export class PositionManager {
 
     const [closedPosition] = this.positions.splice(positionIndex, 1);
     return closedPosition;
+  }
+
+  public updatePositionPrice(positionId: string, newPrice: number): void {
+    const position = this.positions.find(p => p.id === positionId);
+    if (position) {
+      position.currentPrice = newPrice;
+      
+      // Recalculate P&L
+      if (position.action === 'buy') {
+        position.pnl = (position.currentPrice - position.entryPrice) * position.quantity;
+        position.pnlPercent = ((position.currentPrice - position.entryPrice) / position.entryPrice) * 100;
+      } else {
+        position.pnl = (position.entryPrice - position.currentPrice) * position.quantity;
+        position.pnlPercent = ((position.entryPrice - position.currentPrice) / position.entryPrice) * 100;
+      }
+    }
   }
 
   public updatePositions() {

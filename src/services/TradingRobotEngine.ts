@@ -415,6 +415,11 @@ export class TradingRobotEngine {
   }
 
   private async executeSignal(signal: TradingSignal): Promise<boolean> {
+    if (signal.action === 'hold') {
+      console.log(`💡 HOLD signal received for ${signal.symbol}, no action taken.`);
+      return false;
+    }
+
     const { isLiveTrading } = orderExecutionService.getTradingStatus();
 
     if (isLiveTrading) {

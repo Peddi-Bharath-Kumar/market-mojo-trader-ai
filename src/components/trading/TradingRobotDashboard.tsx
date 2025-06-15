@@ -38,17 +38,24 @@ export const TradingRobotDashboard = () => {
   });
 
   useEffect(() => {
-    const interval = setInterval(() => {
+    const updateDashboard = async () => {
       setRobotStatus(tradingRobotEngine.getRobotStatus());
       if (robotActive) {
-        const newSignals = tradingRobotEngine.generateSignals();
-        setSignals(prev => [...newSignals, ...prev].slice(0, 10));
-        
-        // Get actual positions from broker
-        const positions = marketDataService.getPositions();
-        setActualPositions(positions);
+        try {
+          const newSignals = await tradingRobotEngine.generateSignals();
+          setSignals(prev => [...newSignals, ...prev].slice(0, 10));
+          
+          // Get actual positions from broker
+          const positions = marketDataService.getPositions();
+          setActualPositions(positions);
+        } catch (error) {
+            console.error("Dashboard update failed:", error);
+        }
       }
-    }, 30000);
+    };
+
+    updateDashboard(); // Initial call
+    const interval = setInterval(updateDashboard, 30000);
 
     return () => clearInterval(interval);
   }, [robotActive]);
