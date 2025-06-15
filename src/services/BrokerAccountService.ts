@@ -583,7 +583,8 @@ class BrokerAccountService {
         dayPnL,
         dayPnLPercent,
         positions: allPositions,
-        orders: []
+        orders: [],
+        hasPortfolioDataAccess: true
       };
 
       this.accountData = realAccountData;
