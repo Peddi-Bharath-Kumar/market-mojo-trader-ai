@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +16,20 @@ interface APIConfigurationProps {
   isConfigured: boolean;
 }
 
+interface StoredCredentials {
+  broker: string;
+  apiKey: string;
+  apiSecret: string;
+  accessToken: string;
+  clientId: string;
+  password: string;
+  totpKey: string;
+  sessionToken: string;
+  authMethod: 'password' | 'session';
+  isAuthenticated: boolean;
+  lastConnectionTest?: string;
+}
+
 export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured, isConfigured }) => {
   const [config, setConfig] = useState<BrokerConfig>({
     broker: '',
@@ -24,8 +39,8 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
   });
   
   const [clientId, setClientId] = useState('');
-  const [password, setPassword] = useState(''); // Changed from mpin to password
-  const [totpKey, setTotpKey] = useState(''); // For Angel Broking TOTP Key
+  const [password, setPassword] = useState('');
+  const [totpKey, setTotpKey] = useState('');
   const [sessionToken, setSessionToken] = useState('');
   const [authMethod, setAuthMethod] = useState<'password' | 'session'>('password');
   const [showSecrets, setShowSecrets] = useState(false);
@@ -34,6 +49,77 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
   const [lastConnectionTest, setLastConnectionTest] = useState<Date | null>(null);
   const [connectionError, setConnectionError] = useState<string>('');
   const [isRealConnection, setIsRealConnection] = useState(false);
+
+  // Load saved credentials on component mount
+  useEffect(() => {
+    console.log('🔄 Loading saved credentials from localStorage...');
+    const savedCredentials = localStorage.getItem('trading-credentials');
+    if (savedCredentials) {
+      try {
+        const credentials: StoredCredentials = JSON.parse(savedCredentials);
+        console.log('✅ Found saved credentials for broker:', credentials.broker);
+        
+        setConfig({
+          broker: credentials.broker,
+          apiKey: credentials.apiKey,
+          apiSecret: credentials.apiSecret,
+          accessToken: credentials.accessToken
+        });
+        
+        setClientId(credentials.clientId || '');
+        setPassword(credentials.password || '');
+        setTotpKey(credentials.totpKey || '');
+        setSessionToken(credentials.sessionToken || '');
+        setAuthMethod(credentials.authMethod || 'password');
+        
+        if (credentials.isAuthenticated) {
+          setConnectionStatus('connected');
+          setIsRealConnection(true);
+          onConfigured(true);
+          
+          if (credentials.lastConnectionTest) {
+            setLastConnectionTest(new Date(credentials.lastConnectionTest));
+          }
+          
+          // Restore market data service config
+          marketDataService.setApiConfig({
+            ...config,
+            broker: credentials.broker,
+            apiKey: credentials.apiKey,
+            apiSecret: credentials.broker === 'angel' ? credentials.clientId : credentials.apiSecret,
+            accessToken: credentials.broker === 'angel' ? 
+              (credentials.authMethod === 'session' ? credentials.sessionToken : credentials.password) : 
+              credentials.accessToken
+          });
+          
+          console.log('🔗 Restored authentication state for', credentials.broker);
+        }
+      } catch (error) {
+        console.error('❌ Failed to load saved credentials:', error);
+        localStorage.removeItem('trading-credentials');
+      }
+    }
+  }, []);
+
+  // Save credentials to localStorage
+  const saveCredentials = (authenticated: boolean = false) => {
+    const credentials: StoredCredentials = {
+      broker: config.broker,
+      apiKey: config.apiKey,
+      apiSecret: config.apiSecret,
+      accessToken: config.accessToken || '',
+      clientId,
+      password,
+      totpKey,
+      sessionToken,
+      authMethod,
+      isAuthenticated: authenticated,
+      lastConnectionTest: authenticated ? new Date().toISOString() : undefined
+    };
+    
+    localStorage.setItem('trading-credentials', JSON.stringify(credentials));
+    console.log('💾 Credentials saved to localStorage');
+  };
 
   const brokers = [
     { 
@@ -132,14 +218,19 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
         setLastConnectionTest(new Date());
         
         // Set the config for market data service
-        marketDataService.setApiConfig({
+        const marketConfig = {
           ...config,
           apiSecret: config.broker === 'angel' ? clientId : config.apiSecret,
           accessToken: config.broker === 'angel' ? (authMethod === 'session' ? sessionToken : password) : config.accessToken
-        });
+        };
+        
+        marketDataService.setApiConfig(marketConfig);
+        
+        // Save credentials with authenticated status
+        saveCredentials(true);
         
         console.log('✅ REAL API Connection successful!');
-        alert(`✅ Successfully authenticated with ${config.broker}!\n\n🔐 Real broker connection established\n📡 Real-time market data is now available`);
+        alert(`✅ Successfully authenticated with ${config.broker}!\n\n🔐 Real broker connection established\n📡 Real-time market data is now available\n💾 Credentials saved - will persist across tabs`);
         
         try {
           await marketDataService.connect();
@@ -153,6 +244,9 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
         setConnectionError(testResult.error || 'Authentication failed');
         setIsRealConnection(testResult.realConnection);
         onConfigured(false);
+        
+        // Save credentials but mark as not authenticated
+        saveCredentials(false);
         
         console.error('❌ Authentication failed:', testResult.error);
         
@@ -169,10 +263,27 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
       setConnectionError('Connection test failed. Please check your credentials.');
       setIsRealConnection(false);
       onConfigured(false);
+      saveCredentials(false);
       alert('❌ Connection test failed. Please check your credentials and try again.');
     } finally {
       setIsConnecting(false);
     }
+  };
+
+  const clearCredentials = () => {
+    localStorage.removeItem('trading-credentials');
+    setConfig({ broker: '', apiKey: '', apiSecret: '', accessToken: '' });
+    setClientId('');
+    setPassword('');
+    setTotpKey('');
+    setSessionToken('');
+    setAuthMethod('password');
+    setConnectionStatus('disconnected');
+    setIsRealConnection(false);
+    setLastConnectionTest(null);
+    setConnectionError('');
+    onConfigured(false);
+    console.log('🗑️ Credentials cleared');
   };
 
   const selectedBroker = brokers.find(b => b.id === config.broker);
@@ -210,6 +321,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                   <h4 className="font-medium text-red-800 mb-2">🔐 Real Credential Testing</h4>
                   <div className="text-sm text-red-700 space-y-1">
                     <div>• Your credentials are tested against REAL broker APIs</div>
+                    <div>• Credentials are saved locally and persist across tabs</div>
                     <div>• Invalid credentials will be REJECTED by the broker</div>
                     <div>• Only successful authentication enables real data</div>
                     <div>• Angel Broking requires TOTP Key for secure access</div>
@@ -224,11 +336,16 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
             <Label htmlFor="broker">Select Your Broker</Label>
             <Select value={config.broker} onValueChange={(value) => {
               setConfig(prev => ({ ...prev, broker: value }));
-              setClientId('');
-              setPassword('');
-              setTotpKey('');
-              setSessionToken('');
-              setAuthMethod('password');
+              if (value !== config.broker) {
+                // Clear other fields when switching brokers
+                setClientId('');
+                setPassword('');
+                setTotpKey('');
+                setSessionToken('');
+                setAuthMethod('password');
+                setConnectionStatus('disconnected');
+                onConfigured(false);
+              }
             }}>
               <SelectTrigger>
                 <SelectValue placeholder="Choose your broker platform" />
@@ -251,14 +368,26 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h4 className="font-medium">API Credentials</h4>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowSecrets(!showSecrets)}
-                >
-                  {showSecrets ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  {showSecrets ? 'Hide' : 'Show'} Secrets
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowSecrets(!showSecrets)}
+                  >
+                    {showSecrets ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    {showSecrets ? 'Hide' : 'Show'} Secrets
+                  </Button>
+                  {connectionStatus === 'connected' && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={clearCredentials}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      Clear Saved
+                    </Button>
+                  )}
+                </div>
               </div>
 
               {config.broker === 'angel' && (
@@ -390,18 +519,30 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                 </div>
               )}
 
-              <Button 
-                onClick={testConnection} 
-                disabled={isConnecting || !config.apiKey}
-                className="w-full"
-              >
-                {isConnecting ? (
-                  <div className="flex items-center gap-2">
-                    <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
-                    Testing Real Credentials...
-                  </div>
-                ) : '🔐 Test Real Broker Credentials'}
-              </Button>
+              <div className="flex gap-2">
+                <Button 
+                  onClick={testConnection} 
+                  disabled={isConnecting || !config.apiKey}
+                  className="flex-1"
+                >
+                  {isConnecting ? (
+                    <div className="flex items-center gap-2">
+                      <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
+                      Testing Real Credentials...
+                    </div>
+                  ) : '🔐 Test & Save Credentials'}
+                </Button>
+                
+                {connectionStatus === 'connected' && (
+                  <Button 
+                    onClick={clearCredentials}
+                    variant="outline"
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
             </div>
           )}
 
@@ -422,13 +563,13 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                 )}
                 <div>
                   <div className="font-medium">
-                    {connectionStatus === 'connected' ? '✅ Authenticated Successfully' : 
+                    {connectionStatus === 'connected' ? '✅ Authenticated & Saved' : 
                      connectionStatus === 'error' ? '❌ Authentication Failed' : 
                      'Not Connected'}
                   </div>
                   <div className="text-sm text-gray-600">
                     {connectionStatus === 'connected' 
-                      ? `${isRealConnection ? 'REAL' : 'SIMULATED'} connection to ${selectedBroker?.name}` 
+                      ? `${isRealConnection ? 'REAL' : 'SIMULATED'} connection to ${selectedBroker?.name} - Credentials persist across tabs` 
                       : connectionStatus === 'error'
                       ? connectionError
                       : 'Enter your broker credentials and test the connection'
