@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -5,8 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Settings, Key, CheckCircle, AlertTriangle, Eye, EyeOff, Shield, Wifi } from 'lucide-react';
+import { Settings, Key, CheckCircle, AlertTriangle, Eye, EyeOff, Shield, Wifi, XCircle } from 'lucide-react';
 import { marketDataService, type BrokerConfig } from '@/services/MarketDataService';
+import { BrokerAuthService } from '@/services/BrokerAuthService';
 
 interface APIConfigurationProps {
   onConfigured: (configured: boolean) => void;
@@ -21,11 +23,13 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
     accessToken: ''
   });
   
+  const [clientId, setClientId] = useState(''); // For Angel Broking
   const [showSecrets, setShowSecrets] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connected' | 'error'>('disconnected');
   const [lastConnectionTest, setLastConnectionTest] = useState<Date | null>(null);
   const [connectionError, setConnectionError] = useState<string>('');
+  const [isRealConnection, setIsRealConnection] = useState(false);
 
   const brokers = [
     { 
@@ -48,13 +52,6 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
       docs: 'https://upstox.com/developer/api-documentation/',
       realTimeSupport: true,
       description: 'Real-time market data & trading'
-    },
-    { 
-      id: 'fyers', 
-      name: 'Fyers API', 
-      docs: 'https://myapi.fyers.in/docs/',
-      realTimeSupport: true,
-      description: 'Advanced trading APIs'
     }
   ];
 
@@ -67,49 +64,63 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
     setIsConnecting(true);
     setConnectionStatus('disconnected');
     setConnectionError('');
+    setIsRealConnection(false);
     
     try {
-      console.log(`Testing connection to ${config.broker}...`);
-      console.log(`API Key: ${config.apiKey}`);
-      console.log(`API Secret: ${config.apiSecret}`);
+      console.log(`🔐 Testing REAL ${config.broker} credentials...`);
       
-      // Set the API config in the market data service
-      marketDataService.setApiConfig(config);
+      // Test with REAL broker API
+      const testResult = await BrokerAuthService.testBrokerCredentials(
+        config.broker,
+        config.apiKey,
+        config.apiSecret,
+        config.accessToken,
+        clientId
+      );
       
-      // Test the API connection
-      const testResult = await simulateBrokerAPITest(config);
+      console.log('🔐 Authentication test result:', testResult);
       
       if (testResult.success) {
         setConnectionStatus('connected');
+        setIsRealConnection(testResult.realConnection);
         onConfigured(true);
         setLastConnectionTest(new Date());
         
-        console.log('✅ API Connection successful!');
-        alert(`✅ Successfully connected to ${config.broker}!\n\nReal-time market data is now available.\nYou can start virtual trading safely.`);
+        // Only set the config if authentication was successful
+        marketDataService.setApiConfig(config);
         
-        // Try to connect to real-time data
+        console.log('✅ REAL API Connection successful!');
+        alert(`✅ Successfully authenticated with ${config.broker}!\n\n🔐 Real broker connection established\n📡 Real-time market data is now available`);
+        
         try {
           await marketDataService.connect();
           console.log('📡 Real-time data connection established');
         } catch (error) {
-          console.warn('Real-time data connection failed, using enhanced simulation');
+          console.warn('Real-time data connection failed, but auth was successful');
         }
         
       } else {
         setConnectionStatus('error');
-        setConnectionError(testResult.error || 'Unknown error');
+        setConnectionError(testResult.error || 'Authentication failed');
+        setIsRealConnection(testResult.realConnection);
         onConfigured(false);
         
-        console.error('Connection failed:', testResult.error);
-        alert(`❌ Connection failed: ${testResult.error}\n\nPlease check your credentials and try again.`);
+        console.error('❌ Authentication failed:', testResult.error);
+        
+        if (testResult.realConnection) {
+          alert(`❌ Authentication Failed\n\n🔐 Your ${config.broker} credentials are incorrect:\n${testResult.error}\n\nPlease check your API key, secret, and try again.`);
+        } else {
+          alert(`❌ Connection Failed\n\n🌐 Cannot reach ${config.broker} API:\n${testResult.error}\n\nPlease check your internet connection.`);
+        }
       }
       
     } catch (error) {
-      console.error('Connection test failed:', error);
+      console.error('❌ Connection test failed:', error);
       setConnectionStatus('error');
       setConnectionError('Connection test failed. Please check your credentials.');
+      setIsRealConnection(false);
       onConfigured(false);
-      alert('❌ Connection test failed. Please check your credentials.');
+      alert('❌ Connection test failed. Please check your credentials and try again.');
     } finally {
       setIsConnecting(false);
     }
@@ -126,26 +137,29 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
             Broker API Configuration
             <div className="flex items-center gap-2">
               {connectionStatus === 'connected' && <Badge className="bg-green-500 text-white flex items-center gap-1">
-                <Wifi className="h-3 w-3" />
-                Connected
+                <CheckCircle className="h-3 w-3" />
+                {isRealConnection ? 'REAL CONNECTION' : 'Simulated'}
               </Badge>}
-              {connectionStatus === 'error' && <Badge variant="destructive">Connection Failed</Badge>}
+              {connectionStatus === 'error' && <Badge variant="destructive" className="flex items-center gap-1">
+                <XCircle className="h-3 w-3" />
+                Authentication Failed
+              </Badge>}
             </div>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Safety Notice */}
-          <Card className="bg-blue-50 border-blue-200">
+          {/* Security Warning */}
+          <Card className="bg-red-50 border-red-200">
             <CardContent className="p-4">
               <div className="flex items-start gap-3">
-                <Shield className="h-5 w-5 text-blue-600 mt-0.5" />
+                <Shield className="h-5 w-5 text-red-600 mt-0.5" />
                 <div>
-                  <h4 className="font-medium text-blue-800 mb-2">🔒 Safety First</h4>
-                  <div className="text-sm text-blue-700 space-y-1">
-                    <div>• Virtual Trading is completely isolated from real trading APIs</div>
-                    <div>• Your real trading account is safe during virtual mode</div>
-                    <div>• API connection only enables real-time market data viewing</div>
-                    <div>• No real orders will be placed unless you explicitly enable live trading</div>
+                  <h4 className="font-medium text-red-800 mb-2">🔐 Real Credential Testing</h4>
+                  <div className="text-sm text-red-700 space-y-1">
+                    <div>• Your credentials are tested against REAL broker APIs</div>
+                    <div>• Invalid credentials will be REJECTED by the broker</div>
+                    <div>• Only successful authentication enables real data</div>
+                    <div>• Test with wrong credentials first to verify security</div>
                   </div>
                 </div>
               </div>
@@ -170,19 +184,6 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                 ))}
               </SelectContent>
             </Select>
-            {selectedBroker && (
-              <div className="mt-2 space-y-2">
-                <div className="text-sm text-gray-600">{selectedBroker.description}</div>
-                <a 
-                  href={selectedBroker.docs} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-sm text-blue-600 hover:underline flex items-center gap-1"
-                >
-                  📖 View {selectedBroker.name} API Documentation →
-                </a>
-              </div>
-            )}
           </div>
 
           {/* API Credentials */}
@@ -202,50 +203,51 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="apiKey">
-                    {config.broker === 'angel' ? 'API Key / Client ID' : 'API Key'}
-                  </Label>
+                  <Label htmlFor="apiKey">API Key</Label>
                   <Input
                     id="apiKey"
                     type={showSecrets ? 'text' : 'password'}
                     value={config.apiKey}
                     onChange={(e) => setConfig(prev => ({ ...prev, apiKey: e.target.value }))}
-                    placeholder={config.broker === 'angel' ? 'e.g., Et2oNzy1 or AAAK410190' : 'Enter your API key'}
+                    placeholder="Enter your API key"
                   />
-                  {config.broker === 'angel' && (
-                    <div className="text-xs text-gray-500 mt-1">
-                      Use either your API Key or Client ID
-                    </div>
-                  )}
                 </div>
 
                 <div>
                   <Label htmlFor="apiSecret">
-                    {config.broker === 'angel' ? 'MPIN / Password' : 'API Secret'}
+                    {config.broker === 'angel' ? 'MPIN/Password' : 'API Secret'}
                   </Label>
                   <Input
                     id="apiSecret"
                     type={showSecrets ? 'text' : 'password'}
                     value={config.apiSecret}
                     onChange={(e) => setConfig(prev => ({ ...prev, apiSecret: e.target.value }))}
-                    placeholder={config.broker === 'angel' ? 'e.g., 8877' : 'Enter your API secret'}
+                    placeholder={config.broker === 'angel' ? 'Your MPIN' : 'Enter your API secret'}
                   />
-                  {config.broker === 'angel' && (
-                    <div className="text-xs text-gray-500 mt-1">
-                      Your 4-digit MPIN or password
-                    </div>
-                  )}
                 </div>
 
-                {(config.broker === 'zerodha' || config.broker === 'upstox') && (
-                  <div className="md:col-span-2">
-                    <Label htmlFor="accessToken">Access Token (Optional)</Label>
+                {config.broker === 'angel' && (
+                  <div>
+                    <Label htmlFor="clientId">Client ID (Optional)</Label>
+                    <Input
+                      id="clientId"
+                      type="text"
+                      value={clientId}
+                      onChange={(e) => setClientId(e.target.value)}
+                      placeholder="Your client ID (if different from API key)"
+                    />
+                  </div>
+                )}
+
+                {config.broker === 'zerodha' && (
+                  <div>
+                    <Label htmlFor="accessToken">Access Token</Label>
                     <Input
                       id="accessToken"
                       type={showSecrets ? 'text' : 'password'}
                       value={config.accessToken || ''}
                       onChange={(e) => setConfig(prev => ({ ...prev, accessToken: e.target.value }))}
-                      placeholder="Access token for session-based trading"
+                      placeholder="Required for Zerodha"
                     />
                   </div>
                 )}
@@ -259,99 +261,63 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                 {isConnecting ? (
                   <div className="flex items-center gap-2">
                     <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></div>
-                    Testing Connection...
+                    Testing Real Credentials...
                   </div>
-                ) : 'Test Connection & Enable Real-time Data'}
+                ) : '🔐 Test Real Broker Credentials'}
               </Button>
             </div>
           )}
 
           {/* Connection Status */}
-          {config.broker && (
-            <Card className={
-              connectionStatus === 'connected' ? 'bg-green-50 border-green-200' : 
-              connectionStatus === 'error' ? 'bg-red-50 border-red-200' : 
-              'bg-gray-50'
-            }>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  {connectionStatus === 'connected' ? (
-                    <CheckCircle className="h-5 w-5 text-green-600" />
-                  ) : connectionStatus === 'error' ? (
-                    <AlertTriangle className="h-5 w-5 text-red-600" />
-                  ) : (
-                    <AlertTriangle className="h-5 w-5 text-gray-500" />
-                  )}
-                  <div>
-                    <div className="font-medium">
-                      {connectionStatus === 'connected' ? '✅ Connected & Ready' : 
-                       connectionStatus === 'error' ? '❌ Connection Failed' : 
-                       'Not Connected'}
-                    </div>
-                    <div className="text-sm text-gray-600">
-                      {connectionStatus === 'connected' 
-                        ? `Real-time data from ${selectedBroker?.name} is active` 
-                        : connectionStatus === 'error'
-                        ? connectionError || 'Check your credentials and try again'
-                        : 'Configure and test your API credentials to get real-time data'
-                      }
-                    </div>
-                    {lastConnectionTest && (
-                      <div className="text-xs text-gray-500 mt-1">
-                        Last tested: {lastConnectionTest.toLocaleString()}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Setup Instructions */}
-          <Card className="bg-amber-50 border-amber-200">
+          <Card className={
+            connectionStatus === 'connected' ? 'bg-green-50 border-green-200' : 
+            connectionStatus === 'error' ? 'bg-red-50 border-red-200' : 
+            'bg-gray-50'
+          }>
             <CardContent className="p-4">
-              <h4 className="font-medium text-amber-800 mb-3 flex items-center gap-2">
-                <Key className="h-4 w-4" />
-                Quick Setup Guide
-              </h4>
-              <div className="text-sm text-amber-700 space-y-2">
-                {config.broker === 'angel' ? (
-                  <>
-                    <div>1. Login to Angel Broking SmartAPI portal</div>
-                    <div>2. Create API App and get Client ID & API Key</div>
-                    <div>3. Use your API Key (like "Et2oNzy1") and MPIN (like "8877")</div>
-                    <div>4. Test connection to enable real-time data</div>
-                    <div className="mt-2 p-2 bg-amber-100 rounded">
-                      <strong>Example:</strong> API Key: "Et2oNzy1", MPIN: "8877"
-                    </div>
-                  </>
+              <div className="flex items-center gap-3">
+                {connectionStatus === 'connected' ? (
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                ) : connectionStatus === 'error' ? (
+                  <XCircle className="h-5 w-5 text-red-600" />
                 ) : (
-                  <>
-                    <div>1. Login to your broker's developer portal</div>
-                    <div>2. Create a new API application</div>
-                    <div>3. Copy API Key and API Secret</div>
-                    <div>4. Test connection and start virtual trading</div>
-                  </>
+                  <AlertTriangle className="h-5 w-5 text-gray-500" />
                 )}
+                <div>
+                  <div className="font-medium">
+                    {connectionStatus === 'connected' ? '✅ Authenticated Successfully' : 
+                     connectionStatus === 'error' ? '❌ Authentication Failed' : 
+                     'Not Connected'}
+                  </div>
+                  <div className="text-sm text-gray-600">
+                    {connectionStatus === 'connected' 
+                      ? `${isRealConnection ? 'REAL' : 'SIMULATED'} connection to ${selectedBroker?.name}` 
+                      : connectionStatus === 'error'
+                      ? connectionError
+                      : 'Enter your broker credentials and test the connection'
+                    }
+                  </div>
+                  {lastConnectionTest && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      Last tested: {lastConnectionTest.toLocaleString()}
+                    </div>
+                  )}
+                </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Credential Testing Links */}
-          <Card className="bg-gray-50 border-gray-200">
+          {/* Test Instructions */}
+          <Card className="bg-yellow-50 border-yellow-200">
             <CardContent className="p-4">
-              <h4 className="font-medium text-gray-800 mb-3">🔗 Test Your Credentials</h4>
-              <div className="text-sm text-gray-700 space-y-2">
-                <div>You can test your Angel Broking credentials at:</div>
-                <div className="space-y-1">
-                  <a href="https://smartapi.angelbroking.com/" target="_blank" rel="noopener noreferrer" 
-                     className="text-blue-600 hover:underline block">
-                    • Angel Broking SmartAPI Portal
-                  </a>
-                  <a href="https://smartapi.angelbroking.com/docs" target="_blank" rel="noopener noreferrer" 
-                     className="text-blue-600 hover:underline block">
-                    • SmartAPI Documentation
-                  </a>
+              <h4 className="font-medium text-yellow-800 mb-3">🧪 Testing Instructions</h4>
+              <div className="text-sm text-yellow-700 space-y-2">
+                <div><strong>Step 1:</strong> Try with WRONG credentials first</div>
+                <div><strong>Step 2:</strong> Verify it shows "Authentication Failed"</div>
+                <div><strong>Step 3:</strong> Enter your REAL credentials</div>
+                <div><strong>Step 4:</strong> Verify it shows "Authenticated Successfully"</div>
+                <div className="mt-2 p-2 bg-yellow-100 rounded text-xs">
+                  <strong>Security:</strong> Only valid credentials will pass authentication
                 </div>
               </div>
             </CardContent>
@@ -361,66 +327,3 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
     </div>
   );
 };
-
-// Simulate broker API testing with proper Angel Broking validation
-async function simulateBrokerAPITest(config: BrokerConfig): Promise<{success: boolean, error?: string}> {
-  console.log(`Testing ${config.broker} API connection...`);
-  console.log(`Validating credentials for ${config.broker}`);
-  
-  // Simulate API call delay
-  await new Promise(resolve => setTimeout(resolve, 2000));
-  
-  // Angel Broking specific validation
-  if (config.broker === 'angel') {
-    console.log('Validating Angel Broking credentials...');
-    
-    // Angel Broking API keys are typically 8 characters, Client IDs are 10-12 characters
-    if (config.apiKey.length < 4) {
-      return { success: false, error: 'API Key/Client ID is too short for Angel Broking' };
-    }
-    
-    // MPIN is typically 4 digits
-    if (config.apiSecret.length < 2) {
-      return { success: false, error: 'MPIN/Password is too short' };
-    }
-    
-    // Validate format - API keys are usually alphanumeric
-    if (!/^[A-Za-z0-9]+$/.test(config.apiKey)) {
-      return { success: false, error: 'API Key contains invalid characters' };
-    }
-    
-    // Validate MPIN - should be numeric if it's MPIN
-    if (config.apiSecret.length === 4 && !/^\d+$/.test(config.apiSecret)) {
-      console.log('MPIN appears to be non-numeric, treating as password');
-    }
-    
-    console.log('Angel Broking credentials validation passed');
-  } else {
-    // Other brokers validation
-    if (config.apiKey.length < 10) {
-      return { success: false, error: 'API Key appears to be too short' };
-    }
-    
-    if (config.apiSecret.length < 5) {
-      return { success: false, error: 'API Secret appears to be too short' };
-    }
-  }
-  
-  // Simulate higher success rate for Angel Broking with proper credentials
-  const successRate = config.broker === 'angel' ? 0.95 : 0.9;
-  
-  if (Math.random() < successRate) {
-    console.log(`✅ ${config.broker} API test successful`);
-    return { success: true };
-  } else {
-    const errorMessages = [
-      'Invalid credentials - please check your API key and secret',
-      'API limit exceeded - please try again later',
-      'Authentication failed - verify your credentials',
-      'Network error - please check your connection'
-    ];
-    
-    const randomError = errorMessages[Math.floor(Math.random() * errorMessages.length)];
-    return { success: false, error: randomError };
-  }
-}
