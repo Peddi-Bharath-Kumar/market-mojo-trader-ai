@@ -1,4 +1,6 @@
 
+import { zerodhaKiteService } from './ZerodhaKiteService';
+
 interface OrderRequest {
   symbol: string;
   action: 'buy' | 'sell';
@@ -129,25 +131,48 @@ export class OrderExecutionService {
   }
 
   private async placeZerodhaOrder(order: OrderRequest): Promise<OrderResponse> {
-    // Zerodha KiteConnect API implementation
-    const orderPayload = {
-      tradingsymbol: order.symbol,
-      exchange: this.getExchange(order.symbol),
-      transaction_type: order.action.toUpperCase(),
-      order_type: order.orderType.toUpperCase(),
-      quantity: order.quantity,
-      price: order.price,
-      product: order.product.toUpperCase(),
-      validity: order.validity.toUpperCase(),
-      disclosed_quantity: 0,
-      trigger_price: order.stopLoss,
-      squareoff: order.target,
-      stoploss: order.stopLoss
-    };
+    if (!this.credentials || this.credentials.broker !== 'zerodha') {
+      throw new Error('Zerodha credentials not configured for order placement.');
+    }
 
-    // Note: In real implementation, use proper Zerodha API endpoint
-    console.log('🔵 Zerodha order simulation:', orderPayload);
-    return this.simulateOrder(order);
+    try {
+      const orderId = await zerodhaKiteService.placeOrder({
+        exchange: this.getExchange(order.symbol),
+        tradingsymbol: order.symbol,
+        transaction_type: order.action.toUpperCase() as 'BUY' | 'SELL',
+        quantity: order.quantity,
+        order_type: order.orderType.toUpperCase() as 'MARKET' | 'LIMIT' | 'SL' | 'SL-M',
+        product: order.product.toUpperCase() as 'MIS' | 'CNC' | 'NRML',
+        price: order.price,
+        trigger_price: order.stopLoss,
+        validity: order.validity.toUpperCase() as 'DAY' | 'IOC',
+        squareoff: order.target,
+        stoploss: order.stopLoss
+      });
+
+      const orderResponse: OrderResponse = {
+        orderId,
+        status: 'pending', // Zerodha order placement is async, status needs to be fetched later
+        message: 'Order placed with Zerodha successfully',
+        timestamp: new Date(),
+      };
+      
+      this.orderHistory.unshift(orderResponse);
+      console.log('✅ Zerodha order placed:', orderResponse.orderId);
+      return orderResponse;
+
+    } catch (error) {
+      console.error('❌ Zerodha order placement failed:', error);
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      const orderResponse: OrderResponse = {
+        orderId: `REJ_${Date.now()}`,
+        status: 'rejected',
+        message: `Zerodha order failed: ${message}`,
+        timestamp: new Date()
+      };
+      this.orderHistory.unshift(orderResponse);
+      throw new Error(`Zerodha order failed: ${message}`);
+    }
   }
 
   private async placeUpstoxOrder(order: OrderRequest): Promise<OrderResponse> {

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { marketDataService } from '@/services/MarketDataService';
 import { brokerAccountService } from '@/services/BrokerAccountService';
 import { TradingRobotDashboard } from '@/components/trading/TradingRobotDashboard';
+import { orderExecutionService } from '@/services/OrderExecutionService';
 
 const TradingDashboard = () => {
   const [isTrading, setIsTrading] = useState(false);
@@ -90,6 +92,7 @@ const TradingDashboard = () => {
       return;
     }
     
+    orderExecutionService.enableLiveTrading();
     setIsTrading(true);
     toast({
       title: "Live Trading Started",
@@ -98,6 +101,7 @@ const TradingDashboard = () => {
   };
 
   const handleStopTrading = () => {
+    orderExecutionService.disableLiveTrading();
     setIsTrading(false);
     toast({
       title: "Live Trading Stopped",
@@ -106,6 +110,7 @@ const TradingDashboard = () => {
   };
 
   const handleEmergencyStop = () => {
+    orderExecutionService.disableLiveTrading();
     setIsTrading(false);
     setIsVirtualTrading(false);
     toast({
