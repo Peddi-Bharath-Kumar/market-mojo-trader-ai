@@ -58,7 +58,7 @@ class BrokerAccountService {
 
   async fetchRealAccountData(): Promise<BrokerAccount> {
     if (!this.credentials) {
-      console.warn('⚠️ No broker credentials configured - returning simulation');
+      console.warn('⚠️ No broker credentials configured');
       throw new Error('No broker credentials configured');
     }
 
@@ -90,7 +90,7 @@ class BrokerAccountService {
     } catch (error) {
       console.error('❌ Failed to fetch REAL account data:', error);
       console.warn('🔄 API call failed - will not use simulation fallback');
-      throw error; // Don't fallback to simulation - let caller handle
+      throw error;
     }
   }
 
@@ -98,7 +98,20 @@ class BrokerAccountService {
     console.log('🔗 Connecting to Angel Broking API for REAL account data...');
     
     try {
-      // Step 1: Authenticate with Angel Broking
+      // Check if TOTP is provided in credentials
+      if (!this.credentials.totp) {
+        throw new Error('TOTP (6-digit authenticator code) is required for Angel Broking. Please provide it in the configuration.');
+      }
+
+      // Step 1: Authenticate with Angel Broking including TOTP
+      const authPayload = {
+        clientcode: this.credentials.clientId,
+        password: this.credentials.pin,
+        totp: this.credentials.totp
+      };
+
+      console.log('🔐 Attempting Angel Broking authentication with TOTP...');
+      
       const authResponse = await fetch('https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword', {
         method: 'POST',
         headers: {
@@ -111,10 +124,7 @@ class BrokerAccountService {
           'X-MACAddress': 'fe80::216:3eff:fe1d:e1d1',
           'X-PrivateKey': this.credentials.apiKey
         },
-        body: JSON.stringify({
-          clientcode: this.credentials.clientId,
-          password: this.credentials.pin
-        })
+        body: JSON.stringify(authPayload)
       });
 
       if (!authResponse.ok) {
@@ -128,13 +138,23 @@ class BrokerAccountService {
 
       if (!authData.status || !authData.data?.jwtToken) {
         console.error('❌ Angel Broking auth failed:', authData);
-        throw new Error(`Authentication failed: ${authData.message || 'No token received'}`);
+        
+        // Provide specific error messages for common issues
+        if (authData.errorcode === 'AB1050') {
+          throw new Error('Invalid TOTP code. Please check your authenticator app and enter the current 6-digit code.');
+        } else if (authData.errorcode === 'AB1004') {
+          throw new Error('Invalid client ID or password. Please check your credentials.');
+        } else if (authData.errorcode === 'AB1010') {
+          throw new Error('Account blocked or suspended. Please contact Angel Broking support.');
+        } else {
+          throw new Error(`Authentication failed: ${authData.message || 'Unknown error'}`);
+        }
       }
 
       this.authToken = authData.data.jwtToken;
-      console.log('✅ Angel Broking authentication successful');
+      console.log('✅ Angel Broking authentication successful with TOTP');
       
-      // Step 2: Fetch REAL account funds (your actual money)
+      // Step 2: Fetch REAL account funds
       console.log('💰 Fetching your REAL account balance...');
       const fundsResponse = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/user/v1/getRMS', {
         method: 'GET',
@@ -159,7 +179,7 @@ class BrokerAccountService {
         console.warn('⚠️ Failed to fetch funds data:', await fundsResponse.text());
       }
 
-      // Step 3: Fetch REAL positions (your current trades)
+      // Step 3: Fetch REAL positions
       console.log('📊 Fetching your REAL positions...');
       const positionsResponse = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getPosition', {
         method: 'GET',
@@ -184,7 +204,7 @@ class BrokerAccountService {
         console.warn('⚠️ Failed to fetch positions data:', await positionsResponse.text());
       }
 
-      // Step 4: Fetch REAL holdings (your long-term investments)
+      // Step 4: Fetch REAL holdings
       console.log('🏦 Fetching your REAL holdings...');
       const holdingsResponse = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getAllHolding', {
         method: 'GET',
@@ -221,7 +241,6 @@ class BrokerAccountService {
         console.log('🏦 Your Positions:', positions.length);
         console.log('💎 Your Holdings:', holdings.length);
 
-        // Your actual available balance
         const availableBalance = parseFloat(rmsData.availablecash || '0');
         const usedMargin = parseFloat(rmsData.collateral || '0');
         
@@ -274,7 +293,7 @@ class BrokerAccountService {
         const dayPnLPercent = totalValue > 0 ? (dayPnL / totalValue) * 100 : 0;
 
         const realAccountData: BrokerAccount = {
-          accountId: this.credentials.clientId, // Real account ID, not simulation
+          accountId: this.credentials.clientId,
           availableBalance,
           usedMargin,
           totalValue,
@@ -300,7 +319,7 @@ class BrokerAccountService {
 
     } catch (error) {
       console.error('❌ Angel Broking API Error:', error);
-      throw error; // Don't fallback to simulation
+      throw error;
     }
   }
 
@@ -400,67 +419,6 @@ class BrokerAccountService {
     throw new Error('Upstox integration not yet implemented');
   }
 
-  private getEnhancedSimulatedAccount(): BrokerAccount {
-    const baseBalance = 250000;
-    const variation = (Math.random() - 0.5) * 50000;
-    
-    return {
-      accountId: `SIM_${this.credentials?.clientId || 'TEST123'}`,
-      availableBalance: baseBalance + variation,
-      usedMargin: 45000 + (Math.random() - 0.5) * 20000,
-      totalValue: baseBalance + variation + 45000,
-      dayPnL: (Math.random() - 0.5) * 8000,
-      dayPnLPercent: (Math.random() - 0.5) * 3.2,
-      positions: this.generateEnhancedPositions(),
-      orders: []
-    };
-  }
-
-  private generateEnhancedPositions(): BrokerPosition[] {
-    const currentMarketPrices = {
-      'RELIANCE': 2945,
-      'TCS': 4175,
-      'INFY': 1890,
-      'HDFC': 1735,
-      'ICICIBANK': 1055,
-      'BANKNIFTY': 55420,
-      'NIFTY': 24750
-    };
-
-    const symbols = Object.keys(currentMarketPrices);
-    const numPositions = Math.floor(Math.random() * 3) + 1;
-    
-    return symbols.slice(0, numPositions).map(symbol => {
-      const currentPrice = currentMarketPrices[symbol as keyof typeof currentMarketPrices];
-      const avgPrice = currentPrice * (0.95 + Math.random() * 0.1);
-      const quantity = Math.floor(Math.random() * 50) + 10;
-      const pnl = (currentPrice - avgPrice) * quantity;
-      
-      return {
-        symbol,
-        quantity,
-        averagePrice: avgPrice,
-        currentPrice,
-        pnl,
-        pnlPercent: (pnl / (avgPrice * quantity)) * 100,
-        product: ['mis', 'cnc', 'nrml'][Math.floor(Math.random() * 3)] as 'mis' | 'cnc' | 'nrml'
-      };
-    });
-  }
-
-  private getRealisticSimulatedAccount(): BrokerAccount {
-    return {
-      accountId: 'SIM_' + Date.now(),
-      availableBalance: 125000,
-      usedMargin: 75000,
-      totalValue: 200000,
-      dayPnL: (Math.random() - 0.5) * 5000,
-      dayPnLPercent: (Math.random() - 0.5) * 2.5,
-      positions: this.generateEnhancedPositions(),
-      orders: []
-    };
-  }
-
   async startRealTimeUpdates(): Promise<void> {
     if (!this.credentials) return;
 
@@ -471,7 +429,6 @@ class BrokerAccountService {
         await this.fetchRealAccountData();
       } catch (error) {
         console.warn('⚠️ Real-time update failed:', error);
-        // Don't fallback to simulation during real-time updates
       }
     }, 30000);
   }
