@@ -6,23 +6,30 @@ export interface SignalScore {
   volumeScore: number;
   sentimentScore: number;
   volatilityScore: number;
+  momentumScore: number;
+  riskScore: number;
   totalScore: number;
   confidence: number;
 }
 
 export interface MarketRegime {
-  type: 'trending_bull' | 'trending_bear' | 'sideways_low_vol' | 'sideways_high_vol' | 'volatile_uncertain';
+  type: 'trending_bull' | 'trending_bear' | 'sideways_low_vol' | 'sideways_high_vol' | 'volatile_uncertain' | 'gap_up' | 'gap_down' | 'expiry_day';
   strength: number;
   hurstExponent: number;
   atrSlope: number;
-  volatilityRegime: 'low' | 'medium' | 'high';
+  volatilityRegime: 'low' | 'medium' | 'high' | 'extreme';
+  timeOfDay: 'pre_open' | 'opening' | 'morning' | 'afternoon' | 'closing' | 'after_hours';
+  expiryDays: number;
 }
 
 export interface DynamicAllocation {
   conservative: number;
   moderate: number;
   aggressive: number;
+  scalping: number;
+  swing: number;
   maxPositions: number;
+  maxCapitalPerTrade: number;
   riskPerTrade: number;
 }
 
@@ -32,40 +39,89 @@ export interface EnhancedTradingSignal extends TradingSignal {
   patternConfidence: number;
   riskRewardRatio: number;
   expectedHoldTime: number;
+  entryTiming: 'immediate' | 'breakout' | 'pullback' | 'momentum';
+  marketCap: 'large' | 'mid' | 'small';
+  sector: string;
+  correlationRisk: number;
 }
 
 export class EnhancedTradingEngine {
   private marketRegime: MarketRegime | null = null;
-  private priceHistory: number[] = [];
-  private volumeHistory: number[] = [];
+  private priceHistory: { [symbol: string]: number[] } = {};
+  private volumeHistory: { [symbol: string]: number[] } = {};
   private volatilityHistory: number[] = [];
   private dynamicAllocation: DynamicAllocation;
+  private marketSchedule = {
+    preOpen: { start: 9, end: 9.25 },
+    regular: { start: 9.25, end: 15.5 },
+    closing: { start: 15.4, end: 15.5 }
+  };
   
   constructor() {
     this.dynamicAllocation = this.getBaseAllocation();
   }
 
+  public isMarketOpen(): boolean {
+    const now = new Date();
+    const day = now.getDay(); // 0 = Sunday, 6 = Saturday
+    const hour = now.getHours() + now.getMinutes() / 60;
+    
+    // Weekend check
+    if (day === 0 || day === 6) return false;
+    
+    // Market hours: 9:15 AM to 3:30 PM IST
+    return hour >= this.marketSchedule.preOpen.start && hour <= this.marketSchedule.regular.end;
+  }
+
+  public isExpiryWeek(): boolean {
+    const now = new Date();
+    const thursday = new Date(now);
+    thursday.setDate(now.getDate() + (4 - now.getDay()));
+    const daysToExpiry = Math.ceil((thursday.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    return daysToExpiry <= 2;
+  }
+
+  public getTimeOfDay(): MarketRegime['timeOfDay'] {
+    const hour = new Date().getHours() + new Date().getMinutes() / 60;
+    
+    if (hour < 9.25) return 'pre_open';
+    if (hour >= 9.25 && hour < 10.5) return 'opening';
+    if (hour >= 10.5 && hour < 13) return 'morning';
+    if (hour >= 13 && hour < 15.4) return 'afternoon';
+    if (hour >= 15.4 && hour <= 15.5) return 'closing';
+    return 'after_hours';
+  }
+
   public analyzeMarketRegime(priceData: number[], volumeData: number[]): MarketRegime {
-    // Calculate Hurst Exponent for trend persistence
     const hurstExponent = this.calculateHurstExponent(priceData);
-    
-    // Calculate ATR slope for volatility trend
     const atrSlope = this.calculateATRSlope(priceData);
+    const gapAnalysis = this.analyzeGap(priceData);
+    const timeOfDay = this.getTimeOfDay();
+    const expiryDays = this.getDaysToExpiry();
     
-    // Detect regime type
     let regimeType: MarketRegime['type'];
     let strength = 0;
     
-    if (hurstExponent > 0.6 && atrSlope > 0.1) {
+    // Gap analysis first
+    if (gapAnalysis.gapPercent > 1.5) {
+      regimeType = 'gap_up';
+      strength = Math.min(gapAnalysis.gapPercent / 3, 1);
+    } else if (gapAnalysis.gapPercent < -1.5) {
+      regimeType = 'gap_down';
+      strength = Math.min(Math.abs(gapAnalysis.gapPercent) / 3, 1);
+    } else if (expiryDays <= 1) {
+      regimeType = 'expiry_day';
+      strength = 0.8;
+    } else if (hurstExponent > 0.65 && atrSlope > 0.15) {
       regimeType = 'trending_bull';
       strength = Math.min((hurstExponent - 0.6) * 2.5, 1);
-    } else if (hurstExponent > 0.6 && atrSlope < -0.1) {
+    } else if (hurstExponent > 0.65 && atrSlope < -0.15) {
       regimeType = 'trending_bear';
       strength = Math.min((hurstExponent - 0.6) * 2.5, 1);
-    } else if (hurstExponent < 0.4 && Math.abs(atrSlope) < 0.05) {
+    } else if (hurstExponent < 0.35 && Math.abs(atrSlope) < 0.08) {
       regimeType = 'sideways_low_vol';
       strength = Math.min((0.4 - hurstExponent) * 2.5, 1);
-    } else if (hurstExponent < 0.4 && Math.abs(atrSlope) > 0.1) {
+    } else if (hurstExponent < 0.35 && Math.abs(atrSlope) > 0.15) {
       regimeType = 'sideways_high_vol';
       strength = Math.min((0.4 - hurstExponent) * 2.5, 1);
     } else {
@@ -80,41 +136,37 @@ export class EnhancedTradingEngine {
       strength,
       hurstExponent,
       atrSlope,
-      volatilityRegime
+      volatilityRegime,
+      timeOfDay,
+      expiryDays
     };
 
-    // Update dynamic allocation based on regime
     this.updateDynamicAllocation();
-
-    console.log(`📊 Market Regime Detected: ${regimeType} (Strength: ${(strength * 100).toFixed(1)}%)`);
+    console.log(`📊 Market Regime: ${regimeType} | Time: ${timeOfDay} | Strength: ${(strength * 100).toFixed(1)}%`);
     return this.marketRegime;
   }
 
-  public async analyzeMarketRegimeWithRealData(symbol: string = 'NIFTY'): Promise<MarketRegime> {
-    try {
-      // Get real historical data for regime analysis
-      const endDate = new Date().toISOString().split('T')[0];
-      const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-      
-      const historicalData = await realDataService.getHistoricalData(symbol, startDate, endDate);
-      
-      if (historicalData.length > 0) {
-        const prices = historicalData.map(d => d.c); // closing prices
-        const volumes = historicalData.map(d => d.v); // volumes
-        
-        console.log(`📊 Analyzing market regime with ${prices.length} real data points for ${symbol}`);
-        return this.analyzeMarketRegime(prices, volumes);
-      } else {
-        console.warn('No real historical data available, using simulation');
-        return this.analyzeMarketRegime(this.generateMockPrices(), this.generateMockVolumes());
-      }
-    } catch (error) {
-      console.error('Failed to get real data for regime analysis:', error);
-      return this.analyzeMarketRegime(this.generateMockPrices(), this.generateMockVolumes());
-    }
+  private analyzeGap(prices: number[]): { gapPercent: number, gapType: 'up' | 'down' | 'none' } {
+    if (prices.length < 2) return { gapPercent: 0, gapType: 'none' };
+    
+    const previousClose = prices[prices.length - 2];
+    const currentOpen = prices[prices.length - 1];
+    const gapPercent = ((currentOpen - previousClose) / previousClose) * 100;
+    
+    return {
+      gapPercent,
+      gapType: gapPercent > 0.5 ? 'up' : gapPercent < -0.5 ? 'down' : 'none'
+    };
   }
 
-  private calculateHurstExponent(prices: number[]): number {
+  private getDaysToExpiry(): number {
+    const now = new Date();
+    const thursday = new Date(now);
+    thursday.setDate(now.getDate() + (4 - now.getDay()));
+    return Math.ceil((thursday.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  }
+
+  public calculateHurstExponent(prices: number[]): number {
     if (prices.length < 20) return 0.5;
     
     // Simplified Hurst calculation using R/S analysis
@@ -139,7 +191,7 @@ export class EnhancedTradingEngine {
     return Math.log(rs) / Math.log(n);
   }
 
-  private calculateATRSlope(prices: number[]): number {
+  public calculateATRSlope(prices: number[]): number {
     if (prices.length < 14) return 0;
     
     const atrValues = [];
@@ -161,7 +213,7 @@ export class EnhancedTradingEngine {
     return (recentAvg - olderAvg) / olderAvg;
   }
 
-  private classifyVolatilityRegime(prices: number[]): 'low' | 'medium' | 'high' {
+  public classifyVolatilityRegime(prices: number[]): 'low' | 'medium' | 'high' | 'extreme' {
     if (prices.length < 20) return 'medium';
     
     const returns = prices.slice(1).map((price, i) => Math.log(price / prices[i]));
@@ -175,62 +227,96 @@ export class EnhancedTradingEngine {
   private updateDynamicAllocation(): void {
     if (!this.marketRegime) return;
 
-    switch (this.marketRegime.type) {
-      case 'trending_bull':
-        this.dynamicAllocation = {
-          conservative: 40, // Reduce conservative in trending markets
-          moderate: 40,     // Increase moderate for momentum
-          aggressive: 20,   // Increase aggressive for trends
-          maxPositions: 7,  // Allow more positions in trending
-          riskPerTrade: 1.2 // Slightly higher risk in trending
-        };
-        break;
-        
-      case 'trending_bear':
-        this.dynamicAllocation = {
-          conservative: 45,
-          moderate: 35,
-          aggressive: 20,
-          maxPositions: 6,
-          riskPerTrade: 1.0
-        };
-        break;
-        
-      case 'sideways_low_vol':
-        this.dynamicAllocation = {
-          conservative: 80, // Heavy on Iron Condors
-          moderate: 15,
-          aggressive: 5,
-          maxPositions: 4,
-          riskPerTrade: 0.8
-        };
-        break;
-        
-      case 'sideways_high_vol':
-        this.dynamicAllocation = {
-          conservative: 70,
-          moderate: 20,
-          aggressive: 10,
-          maxPositions: 5,
-          riskPerTrade: 0.9
-        };
-        break;
-        
-      default:
-        this.dynamicAllocation = this.getBaseAllocation();
+    const timeOfDay = this.marketRegime.timeOfDay;
+    const regimeType = this.marketRegime.type;
+
+    // Base allocation
+    let allocation = this.getBaseAllocation();
+
+    // Time-based adjustments
+    if (timeOfDay === 'opening') {
+      allocation.aggressive = 30; // More aggressive in opening
+      allocation.maxPositions = 8;
+      allocation.riskPerTrade = 1.5;
+    } else if (timeOfDay === 'closing') {
+      allocation.conservative = 80; // Conservative near close
+      allocation.maxPositions = 3;
+      allocation.riskPerTrade = 0.5;
     }
 
-    console.log(`🎯 Dynamic Allocation Updated:`, this.dynamicAllocation);
+    // Regime-based adjustments
+    switch (regimeType) {
+      case 'trending_bull':
+        allocation = {
+          conservative: 20, moderate: 35, aggressive: 25, scalping: 15, swing: 5,
+          maxPositions: 10, maxCapitalPerTrade: 15, riskPerTrade: 2.0
+        };
+        break;
+      case 'expiry_day':
+        allocation = {
+          conservative: 70, moderate: 20, aggressive: 10, scalping: 0, swing: 0,
+          maxPositions: 5, maxCapitalPerTrade: 8, riskPerTrade: 0.8
+        };
+        break;
+      case 'gap_up':
+      case 'gap_down':
+        allocation = {
+          conservative: 40, moderate: 30, aggressive: 20, scalping: 10, swing: 0,
+          maxPositions: 6, maxCapitalPerTrade: 12, riskPerTrade: 1.2
+        };
+        break;
+    }
+
+    this.dynamicAllocation = allocation;
+    console.log(`🎯 Dynamic Allocation Updated for ${regimeType}:`, allocation);
   }
 
-  private getBaseAllocation(): DynamicAllocation {
-    return {
-      conservative: 60,
-      moderate: 30,
-      aggressive: 10,
-      maxPositions: 5,
-      riskPerTrade: 1.0
-    };
+  public calculatePositionSize(symbol: string, price: number, confidence: number, accountBalance: number = 500000): number {
+    const allocation = this.dynamicAllocation;
+    const riskAmount = accountBalance * (allocation.riskPerTrade / 100);
+    const maxCapital = accountBalance * (allocation.maxCapitalPerTrade / 100);
+    
+    // Volatility-adjusted position sizing
+    const volatility = this.getSymbolVolatility(symbol);
+    const volatilityMultiplier = volatility > 0.25 ? 0.7 : volatility < 0.15 ? 1.3 : 1.0;
+    
+    // Confidence-based sizing
+    const confidenceMultiplier = 0.5 + (confidence * 0.5); // 0.5 to 1.0
+    
+    // Market cap adjustment
+    const marketCapMultiplier = this.getMarketCapMultiplier(symbol);
+    
+    // Calculate base quantity
+    const adjustedRisk = riskAmount * volatilityMultiplier * confidenceMultiplier * marketCapMultiplier;
+    const maxQuantity = Math.floor(maxCapital / price);
+    const riskBasedQuantity = Math.floor(adjustedRisk / (price * 0.02)); // 2% stop loss assumption
+    
+    const finalQuantity = Math.min(maxQuantity, riskBasedQuantity);
+    
+    console.log(`📊 Position Size for ${symbol}: ${finalQuantity} (Risk: ₹${adjustedRisk.toFixed(0)}, Confidence: ${confidence})`);
+    return Math.max(1, finalQuantity);
+  }
+
+  private getSymbolVolatility(symbol: string): number {
+    const prices = this.priceHistory[symbol];
+    if (!prices || prices.length < 20) return 0.20; // Default 20%
+    
+    const returns = prices.slice(1).map((price, i) => Math.log(price / prices[i]));
+    const variance = returns.reduce((sum, r) => sum + r * r, 0) / returns.length;
+    return Math.sqrt(variance * 252); // Annualized volatility
+  }
+
+  private getMarketCapMultiplier(symbol: string): number {
+    // Large cap stocks (higher allocation)
+    const largeCap = ['RELIANCE', 'TCS', 'HDFC', 'INFY', 'ICICI', 'SBI', 'ITC'];
+    if (largeCap.includes(symbol)) return 1.2;
+    
+    // Mid cap (normal allocation)
+    const midCap = ['ZOMATO', 'PAYTM', 'NAUKRI', 'MINDTREE'];
+    if (midCap.includes(symbol)) return 1.0;
+    
+    // Small cap (reduced allocation)
+    return 0.7;
   }
 
   public scoreSignal(signal: TradingSignal, technicalData: any): SignalScore {
@@ -238,80 +324,129 @@ export class EnhancedTradingEngine {
     let volumeScore = 0;
     let sentimentScore = 0;
     let volatilityScore = 0;
+    let momentumScore = 0;
+    let riskScore = 0;
 
-    // Technical Analysis Confluence (0-40 points)
+    // Enhanced Technical Analysis (0-35 points)
     const indicators = technicalData.indicators || {};
     
-    if (indicators.rsi && signal.action === 'buy' && indicators.rsi < 35) technicalScore += 10;
-    if (indicators.rsi && signal.action === 'sell' && indicators.rsi > 65) technicalScore += 10;
+    // RSI with divergence
+    if (indicators.rsi) {
+      if (signal.action === 'buy' && indicators.rsi < 30) technicalScore += 15;
+      else if (signal.action === 'buy' && indicators.rsi < 40) technicalScore += 10;
+      else if (signal.action === 'sell' && indicators.rsi > 70) technicalScore += 15;
+      else if (signal.action === 'sell' && indicators.rsi > 60) technicalScore += 10;
+    }
     
-    if (indicators.macd && indicators.macd.signal === signal.action) technicalScore += 10;
-    if (indicators.bollingerBands && indicators.bollingerBands.breakout) technicalScore += 10;
-    if (indicators.movingAverages && indicators.movingAverages.alignment === signal.action) technicalScore += 10;
+    // MACD with histogram
+    if (indicators.macd) {
+      if (indicators.macd.signal === signal.action) technicalScore += 10;
+      if (indicators.macd.histogram > 0 && signal.action === 'buy') technicalScore += 5;
+      if (indicators.macd.histogram < 0 && signal.action === 'sell') technicalScore += 5;
+    }
+    
+    // Support/Resistance levels
+    if (indicators.supportResistance) {
+      if (signal.action === 'buy' && indicators.supportResistance.nearSupport) technicalScore += 5;
+      if (signal.action === 'sell' && indicators.supportResistance.nearResistance) technicalScore += 5;
+    }
 
-    // Volume Analysis (0-25 points)
+    // Volume Analysis (0-20 points)
     if (technicalData.volume) {
       const volumeRatio = technicalData.volume.current / technicalData.volume.average;
-      if (volumeRatio > 1.5) volumeScore += 15; // High volume confirmation
-      if (volumeRatio > 2.0) volumeScore += 10; // Very high volume
+      if (volumeRatio > 2.0) volumeScore += 20;
+      else if (volumeRatio > 1.5) volumeScore += 15;
+      else if (volumeRatio > 1.2) volumeScore += 10;
+      
+      // Price-volume confirmation
+      if (technicalData.volume.priceVolumeAlignment) volumeScore += 5;
     }
 
-    // Sentiment Score (0-20 points)
+    // Market Sentiment (0-15 points)
     if (technicalData.sentiment) {
       const sentimentAlignment = 
-        (signal.action === 'buy' && technicalData.sentiment > 0.6) ||
-        (signal.action === 'sell' && technicalData.sentiment < 0.4);
+        (signal.action === 'buy' && technicalData.sentiment > 0.65) ||
+        (signal.action === 'sell' && technicalData.sentiment < 0.35);
       
-      if (sentimentAlignment) sentimentScore += 20;
-      else if (Math.abs(technicalData.sentiment - 0.5) > 0.2) sentimentScore += 10;
+      if (sentimentAlignment) sentimentScore += 15;
+      else if (Math.abs(technicalData.sentiment - 0.5) > 0.15) sentimentScore += 8;
     }
 
-    // Volatility Score (0-15 points)
+    // Momentum Analysis (0-15 points)
+    if (indicators.momentum) {
+      if (signal.action === 'buy' && indicators.momentum.trending > 0.7) momentumScore += 15;
+      if (signal.action === 'sell' && indicators.momentum.trending < -0.7) momentumScore += 15;
+    }
+
+    // Risk Assessment (0-10 points)
+    if (this.marketRegime) {
+      if (this.marketRegime.volatilityRegime === 'low') riskScore += 10;
+      else if (this.marketRegime.volatilityRegime === 'medium') riskScore += 7;
+      else if (this.marketRegime.volatilityRegime === 'high') riskScore += 3;
+    }
+
+    // Volatility Score (0-5 points)
     if (technicalData.volatility) {
-      // Prefer moderate volatility for most strategies
-      if (technicalData.volatility > 0.15 && technicalData.volatility < 0.35) {
-        volatilityScore += 15;
-      } else if (technicalData.volatility > 0.10 && technicalData.volatility < 0.50) {
-        volatilityScore += 10;
+      if (technicalData.volatility > 0.15 && technicalData.volatility < 0.30) {
+        volatilityScore += 5;
+      } else if (technicalData.volatility > 0.10 && technicalData.volatility < 0.40) {
+        volatilityScore += 3;
       }
     }
 
-    const totalScore = technicalScore + volumeScore + sentimentScore + volatilityScore;
-    const confidence = Math.min(totalScore / 100, 0.95); // Cap at 95%
+    const totalScore = technicalScore + volumeScore + sentimentScore + volatilityScore + momentumScore + riskScore;
+    const confidence = Math.min(totalScore / 100, 0.98);
 
     return {
       technicalScore,
       volumeScore,
       sentimentScore,
       volatilityScore,
+      momentumScore,
+      riskScore,
       totalScore,
       confidence
     };
   }
 
   public shouldTakeSignal(signalScore: SignalScore, strategy: string): boolean {
-    // High-quality filter: Only take trades with score > 80
-    if (signalScore.totalScore < 80) {
-      console.log(`❌ Signal rejected: Score ${signalScore.totalScore} < 80 threshold`);
+    const timeOfDay = this.getTimeOfDay();
+    
+    // Don't trade during pre-open or after hours
+    if (timeOfDay === 'pre_open' || timeOfDay === 'after_hours') {
       return false;
     }
-
-    // Strategy-specific thresholds
-    const thresholds = {
-      'Intraday Momentum': 85,
-      'Options Iron Condor': 75,
-      'Options Long Straddle': 90,
-      'Swing Trading': 80
+    
+    // More lenient thresholds for better opportunity capture
+    const baseThresholds = {
+      'Scalping': { score: 70, confidence: 0.70 },
+      'Intraday Momentum': { score: 65, confidence: 0.65 },
+      'Options Iron Condor': { score: 60, confidence: 0.60 },
+      'Options Long Straddle': { score: 75, confidence: 0.75 },
+      'Swing Trading': { score: 70, confidence: 0.70 },
+      'Gap Trading': { score: 65, confidence: 0.65 },
+      'Breakout': { score: 70, confidence: 0.70 }
     };
 
-    const threshold = thresholds[strategy] || 80;
+    const threshold = baseThresholds[strategy] || { score: 65, confidence: 0.65 };
     
-    if (signalScore.totalScore >= threshold) {
-      console.log(`✅ High-quality signal accepted: ${signalScore.totalScore} >= ${threshold} for ${strategy}`);
-      return true;
+    // Time-based adjustments
+    if (timeOfDay === 'opening') {
+      threshold.score -= 5; // More lenient during opening volatility
+    } else if (timeOfDay === 'closing') {
+      threshold.score += 10; // More strict near close
     }
-
-    return false;
+    
+    const meetsThreshold = signalScore.totalScore >= threshold.score && 
+                          signalScore.confidence >= threshold.confidence;
+    
+    if (meetsThreshold) {
+      console.log(`✅ Signal accepted: ${strategy} (Score: ${signalScore.totalScore}, Confidence: ${(signalScore.confidence * 100).toFixed(1)}%)`);
+    } else {
+      console.log(`❌ Signal rejected: ${strategy} (Score: ${signalScore.totalScore}/${threshold.score}, Confidence: ${(signalScore.confidence * 100).toFixed(1)}%/${(threshold.confidence * 100).toFixed(1)}%)`);
+    }
+    
+    return meetsThreshold;
   }
 
   public enhanceSignal(baseSignal: TradingSignal, technicalData: any): EnhancedTradingSignal {
@@ -360,36 +495,257 @@ export class EnhancedTradingEngine {
   }
 
   public async generateEnhancedSignalsWithRealData(): Promise<TradingSignal[]> {
+    if (!this.isMarketOpen()) {
+      console.log('🕐 Market is closed. No signals generated.');
+      return [];
+    }
+
     const signals: TradingSignal[] = [];
-    const symbols = ['NIFTY', 'BANKNIFTY', 'RELIANCE', 'TCS', 'INFY'];
+    const symbols = this.getSymbolsForTrading();
     
     console.log('🎯 Generating enhanced signals with real market data...');
     
     for (const symbol of symbols) {
       try {
-        // Get real technical data
         const technicalData = await realDataService.getTechnicalIndicators(symbol);
         const priceData = await realDataService.getRealTimePrice(symbol);
         
-        // Enhanced signal generation based on real data
-        const signal = this.generateSignalFromRealData(symbol, technicalData, priceData);
+        // Store price history for volatility calculations
+        if (!this.priceHistory[symbol]) this.priceHistory[symbol] = [];
+        this.priceHistory[symbol].push(priceData.price);
+        if (this.priceHistory[symbol].length > 50) this.priceHistory[symbol].shift();
         
-        if (signal) {
-          signals.push(signal);
-          console.log(`📈 Generated real data signal for ${symbol}: ${signal.action.toUpperCase()}`);
+        // Generate multiple strategy signals
+        const strategies = this.getActiveStrategies();
+        
+        for (const strategy of strategies) {
+          const signal = await this.generateSignalForStrategy(symbol, strategy, technicalData, priceData);
+          if (signal) {
+            signals.push(signal);
+          }
         }
       } catch (error) {
-        console.warn(`Failed to generate real signal for ${symbol}, using simulation:`, error);
-        // Fallback to existing mock signal generation
-        if (Math.random() > 0.7) {
-          const mockSignal = this.generateMockSignal(symbol);
-          signals.push(mockSignal);
-        }
+        console.warn(`Failed to generate signals for ${symbol}:`, error);
       }
     }
     
-    console.log(`🎯 Generated ${signals.length} enhanced signals (real + simulated)`);
-    return signals;
+    // Filter and rank signals
+    const qualitySignals = this.filterAndRankSignals(signals);
+    console.log(`🎯 Generated ${qualitySignals.length} high-quality signals from ${signals.length} total`);
+    
+    return qualitySignals;
+  }
+
+  private getSymbolsForTrading(): string[] {
+    const timeOfDay = this.getTimeOfDay();
+    const baseSymbols = ['NIFTY', 'BANKNIFTY', 'RELIANCE', 'TCS', 'INFY', 'HDFC', 'ICICI', 'ITC', 'SBI'];
+    
+    // Add sector-specific symbols based on market conditions
+    if (timeOfDay === 'opening') {
+      return [...baseSymbols, 'ZOMATO', 'PAYTM']; // Add momentum stocks
+    }
+    
+    return baseSymbols;
+  }
+
+  private getActiveStrategies(): string[] {
+    const timeOfDay = this.getTimeOfDay();
+    const regimeType = this.marketRegime?.type;
+    
+    let strategies = ['Intraday Momentum', 'Scalping'];
+    
+    if (timeOfDay === 'opening') {
+      strategies.push('Gap Trading', 'Breakout');
+    }
+    
+    if (regimeType === 'sideways_low_vol') {
+      strategies.push('Options Iron Condor');
+    }
+    
+    if (regimeType === 'volatile_uncertain') {
+      strategies.push('Options Long Straddle');
+    }
+    
+    if (timeOfDay === 'afternoon') {
+      strategies.push('Swing Trading');
+    }
+    
+    return strategies;
+  }
+
+  private async generateSignalForStrategy(symbol: string, strategy: string, technicalData: any, priceData: any): Promise<TradingSignal | null> {
+    switch (strategy) {
+      case 'Scalping':
+        return this.generateScalpingSignal(symbol, technicalData, priceData);
+      case 'Gap Trading':
+        return this.generateGapTradingSignal(symbol, technicalData, priceData);
+      case 'Breakout':
+        return this.generateBreakoutSignal(symbol, technicalData, priceData);
+      case 'Swing Trading':
+        return this.generateSwingTradingSignal(symbol, technicalData, priceData);
+      default:
+        return this.generateSignalFromRealData(symbol, technicalData, priceData);
+    }
+  }
+
+  private generateScalpingSignal(symbol: string, technicalData: any, priceData: any): TradingSignal | null {
+    const rsi = technicalData.rsi;
+    const macd = technicalData.macd;
+    
+    // Scalping: Quick moves on RSI extremes with MACD confirmation
+    if (rsi < 25 && macd.value > macd.signal) {
+      return {
+        symbol,
+        action: 'buy',
+        orderType: 'market',
+        quantity: this.calculatePositionSize(symbol, priceData.price, 0.75),
+        price: priceData.price,
+        confidence: 0.75,
+        reason: `Scalping buy: RSI oversold (${rsi.toFixed(1)}) + MACD bullish`,
+        strategy: 'Scalping',
+        target: priceData.price * 1.005, // 0.5% target
+        stopLoss: priceData.price * 0.997 // 0.3% stop
+      };
+    }
+    
+    if (rsi > 75 && macd.value < macd.signal) {
+      return {
+        symbol,
+        action: 'sell',
+        orderType: 'market',
+        quantity: this.calculatePositionSize(symbol, priceData.price, 0.75),
+        price: priceData.price,
+        confidence: 0.75,
+        reason: `Scalping sell: RSI overbought (${rsi.toFixed(1)}) + MACD bearish`,
+        strategy: 'Scalping',
+        target: priceData.price * 0.995,
+        stopLoss: priceData.price * 1.003
+      };
+    }
+    
+    return null;
+  }
+
+  private generateGapTradingSignal(symbol: string, technicalData: any, priceData: any): TradingSignal | null {
+    const prices = this.priceHistory[symbol];
+    if (!prices || prices.length < 2) return null;
+    
+    const gap = this.analyzeGap(prices);
+    
+    // Gap fill strategy
+    if (Math.abs(gap.gapPercent) > 1.0) {
+      const action = gap.gapType === 'up' ? 'sell' : 'buy'; // Counter-trend gap fill
+      
+      return {
+        symbol,
+        action,
+        orderType: 'limit',
+        quantity: this.calculatePositionSize(symbol, priceData.price, 0.70),
+        price: priceData.price,
+        confidence: Math.min(0.85, Math.abs(gap.gapPercent) / 5),
+        reason: `Gap fill trade: ${gap.gapPercent.toFixed(1)}% ${gap.gapType} gap`,
+        strategy: 'Gap Trading',
+        target: action === 'sell' ? priceData.price * 0.985 : priceData.price * 1.015,
+        stopLoss: action === 'sell' ? priceData.price * 1.008 : priceData.price * 0.992
+      };
+    }
+    
+    return null;
+  }
+
+  private generateBreakoutSignal(symbol: string, technicalData: any, priceData: any): TradingSignal | null {
+    const bollingerBands = technicalData.bollingerBands;
+    const volume = priceData.volume;
+    const avgVolume = technicalData.volume?.average || 1000000;
+    
+    // High volume breakout above upper band
+    if (bollingerBands.position > 0.95 && volume > avgVolume * 1.8) {
+      return {
+        symbol,
+        action: 'buy',
+        orderType: 'market',
+        quantity: this.calculatePositionSize(symbol, priceData.price, 0.80),
+        price: priceData.price,
+        confidence: 0.80,
+        reason: `Breakout: Price above BB upper band with high volume`,
+        strategy: 'Breakout',
+        target: priceData.price * 1.025,
+        stopLoss: priceData.price * 0.985
+      };
+    }
+    
+    // Breakdown below lower band
+    if (bollingerBands.position < 0.05 && volume > avgVolume * 1.8) {
+      return {
+        symbol,
+        action: 'sell',
+        orderType: 'market',
+        quantity: this.calculatePositionSize(symbol, priceData.price, 0.80),
+        price: priceData.price,
+        confidence: 0.80,
+        reason: `Breakdown: Price below BB lower band with high volume`,
+        strategy: 'Breakout',
+        target: priceData.price * 0.975,
+        stopLoss: priceData.price * 1.015
+      };
+    }
+    
+    return null;
+  }
+
+  private generateSwingTradingSignal(symbol: string, technicalData: any, priceData: any): TradingSignal | null {
+    const rsi = technicalData.rsi;
+    const macd = technicalData.macd;
+    const ema20 = technicalData.ema20;
+    const ema50 = technicalData.ema50;
+    
+    // Swing buy: RSI recovery from oversold + EMA crossover
+    if (rsi > 35 && rsi < 50 && ema20 > ema50 && macd.value > macd.signal) {
+      return {
+        symbol,
+        action: 'buy',
+        orderType: 'limit',
+        quantity: this.calculatePositionSize(symbol, priceData.price, 0.75),
+        price: priceData.price * 0.998, // Slightly below market for better entry
+        confidence: 0.75,
+        reason: `Swing buy: RSI recovery + EMA bullish + MACD positive`,
+        strategy: 'Swing Trading',
+        target: priceData.price * 1.04, // 4% target
+        stopLoss: priceData.price * 0.975 // 2.5% stop
+      };
+    }
+    
+    return null;
+  }
+
+  private filterAndRankSignals(signals: TradingSignal[]): TradingSignal[] {
+    const timeOfDay = this.getTimeOfDay();
+    
+    return signals
+      .filter(signal => {
+        // Basic filters
+        if (!signal.confidence || signal.confidence < 0.60) return false;
+        
+        // Time-based filters
+        if (timeOfDay === 'closing' && signal.strategy === 'Swing Trading') return false;
+        if (timeOfDay === 'afternoon' && signal.strategy === 'Scalping') return false;
+        
+        return true;
+      })
+      .sort((a, b) => {
+        // Prioritize by confidence and strategy appropriateness
+        const aScore = a.confidence + (this.getStrategyBonus(a.strategy, timeOfDay));
+        const bScore = b.confidence + (this.getStrategyBonus(b.strategy, timeOfDay));
+        return bScore - aScore;
+      })
+      .slice(0, this.dynamicAllocation.maxPositions);
+  }
+
+  private getStrategyBonus(strategy: string, timeOfDay: string): number {
+    if (timeOfDay === 'opening' && (strategy === 'Gap Trading' || strategy === 'Breakout')) return 0.1;
+    if (timeOfDay === 'morning' && strategy === 'Scalping') return 0.05;
+    if (timeOfDay === 'afternoon' && strategy === 'Swing Trading') return 0.05;
+    return 0;
   }
 
   private generateSignalFromRealData(symbol: string, technicalData: any, priceData: any): TradingSignal | null {
@@ -457,12 +813,30 @@ export class EnhancedTradingEngine {
     return null;
   }
 
-  private calculatePositionSize(symbol: string, price: number, confidence: number): number {
-    const baseAmount = 10000; // ₹10,000 per trade
-    const confidenceMultiplier = confidence;
-    const positionValue = baseAmount * confidenceMultiplier;
+  private calculatePositionSize(symbol: string, price: number, confidence: number, accountBalance: number = 500000): number {
+    const allocation = this.dynamicAllocation;
+    const riskAmount = accountBalance * (allocation.riskPerTrade / 100);
+    const maxCapital = accountBalance * (allocation.maxCapitalPerTrade / 100);
     
-    return Math.max(1, Math.floor(positionValue / price));
+    // Volatility-adjusted position sizing
+    const volatility = this.getSymbolVolatility(symbol);
+    const volatilityMultiplier = volatility > 0.25 ? 0.7 : volatility < 0.15 ? 1.3 : 1.0;
+    
+    // Confidence-based sizing
+    const confidenceMultiplier = 0.5 + (confidence * 0.5); // 0.5 to 1.0
+    
+    // Market cap adjustment
+    const marketCapMultiplier = this.getMarketCapMultiplier(symbol);
+    
+    // Calculate base quantity
+    const adjustedRisk = riskAmount * volatilityMultiplier * confidenceMultiplier * marketCapMultiplier;
+    const maxQuantity = Math.floor(maxCapital / price);
+    const riskBasedQuantity = Math.floor(adjustedRisk / (price * 0.02)); // 2% stop loss assumption
+    
+    const finalQuantity = Math.min(maxQuantity, riskBasedQuantity);
+    
+    console.log(`📊 Position Size for ${symbol}: ${finalQuantity} (Risk: ₹${adjustedRisk.toFixed(0)}, Confidence: ${confidence})`);
+    return Math.max(1, finalQuantity);
   }
 
   private generateMockSignal(symbol: string): TradingSignal {
@@ -534,6 +908,19 @@ export class EnhancedTradingEngine {
 
   public getMarketRegime(): MarketRegime | null {
     return this.marketRegime;
+  }
+
+  private getBaseAllocation(): DynamicAllocation {
+    return {
+      conservative: 50,
+      moderate: 25,
+      aggressive: 15,
+      scalping: 7,
+      swing: 3,
+      maxPositions: 6,
+      maxCapitalPerTrade: 10,
+      riskPerTrade: 1.0
+    };
   }
 }
 
