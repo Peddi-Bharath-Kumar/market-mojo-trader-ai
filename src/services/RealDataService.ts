@@ -1,4 +1,3 @@
-
 export interface APICredentials {
   newsAPI?: {
     apiKey: string;
@@ -48,10 +47,9 @@ export interface TechnicalIndicators {
     signal: number;
     histogram: number;
   };
-  sma20: number;
-  sma50: number;
-  ema12: number;
-  ema26: number;
+  movingAverages: {
+    [key: string]: number;
+  };
   stochastic: {
     k: number;
     d: number;
@@ -226,10 +224,13 @@ class RealDataService {
         signal: -3 + Math.random() * 6,
         histogram: -2 + Math.random() * 4
       },
-      sma20: basePrice * (0.98 + Math.random() * 0.04),
-      sma50: basePrice * (0.95 + Math.random() * 0.06),
-      ema12: basePrice * (0.99 + Math.random() * 0.02),
-      ema26: basePrice * (0.97 + Math.random() * 0.04),
+      movingAverages: {
+        '20_sma': basePrice * (0.98 + Math.random() * 0.04),
+        '50_sma': basePrice * (0.95 + Math.random() * 0.06),
+        '12_ema': basePrice * (0.99 + Math.random() * 0.02),
+        '26_ema': basePrice * (0.97 + Math.random() * 0.04),
+        '20_ema': basePrice * (0.985 + Math.random() * 0.03)
+      },
       stochastic: {
         k: Math.random() * 100,
         d: Math.random() * 100
