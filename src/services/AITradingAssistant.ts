@@ -7,7 +7,7 @@ interface MarketAnalysis {
   reasoning: string[];
 }
 
-interface TradingSignal {
+export interface TradingSignal {
   symbol: string;
   action: 'buy' | 'sell' | 'hold';
   type: 'options' | 'equity' | 'futures';
