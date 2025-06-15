@@ -26,6 +26,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
   
   const [clientId, setClientId] = useState('');
   const [mpin, setMpin] = useState('');
+  const [totpKey, setTotpKey] = useState(''); // For Angel Broking TOTP Key
   const [sessionToken, setSessionToken] = useState('');
   const [authMethod, setAuthMethod] = useState<'password' | 'session'>('password');
   const [showSecrets, setShowSecrets] = useState(false);
@@ -111,12 +112,13 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
           sessionToken
         );
       } else {
-        // Use standard credentials method
+        // Use standard credentials method with TOTP support
         testResult = await BrokerAuthService.testBrokerCredentials(
           config.broker,
           config.apiKey,
           config.broker === 'angel' ? clientId : config.apiSecret,
-          config.broker === 'angel' ? (authMethod === 'session' ? sessionToken : mpin) : config.accessToken || ''
+          config.broker === 'angel' ? (authMethod === 'session' ? sessionToken : mpin) : config.accessToken || '',
+          config.broker === 'angel' ? totpKey : undefined // Pass TOTP key for Angel
         );
       }
       
@@ -209,7 +211,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                     <div>• Your credentials are tested against REAL broker APIs</div>
                     <div>• Invalid credentials will be REJECTED by the broker</div>
                     <div>• Only successful authentication enables real data</div>
-                    <div>• Angel Broking may require TOTP for some accounts</div>
+                    <div>• Angel Broking requires TOTP Key for secure access</div>
                   </div>
                 </div>
               </div>
@@ -223,6 +225,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
               setConfig(prev => ({ ...prev, broker: value }));
               setClientId('');
               setMpin('');
+              setTotpKey('');
               setSessionToken('');
               setAuthMethod('password');
             }}>
@@ -295,6 +298,16 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                           onChange={(e) => setMpin(e.target.value)}
                           placeholder="Your 4-digit trading PIN"
                           maxLength={4}
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="totpKey">TOTP Key</Label>
+                        <Input
+                          id="totpKey"
+                          type={showSecrets ? 'text' : 'password'}
+                          value={totpKey}
+                          onChange={(e) => setTotpKey(e.target.value)}
+                          placeholder="Your TOTP secret key"
                         />
                       </div>
                     </div>
@@ -444,23 +457,17 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                   </a>
                 </h4>
                 <div className="text-sm text-blue-700 space-y-3">
-                  <div><strong>Method 1: Password Authentication</strong></div>
+                  <div><strong>Required Credentials:</strong></div>
                   <div className="ml-4 space-y-1">
-                    <div>• API Key: Get from Angel SmartAPI portal</div>
-                    <div>• Client ID: Your Angel trading account ID (e.g., A12345)</div>
-                    <div>• MPIN: Your 4-digit trading PIN</div>
-                  </div>
-                  
-                  <div><strong>Method 2: Session Token (Recommended for TOTP accounts)</strong></div>
-                  <div className="ml-4 space-y-1">
-                    <div>• API Key: Same as above</div>
-                    <div>• Client ID: Same as above</div>
-                    <div>• Session Token: Generate using Angel API with TOTP</div>
+                    <div>• <strong>API Key:</strong> Get from Angel SmartAPI portal</div>
+                    <div>• <strong>Client ID:</strong> Your Angel trading account ID (e.g., A12345)</div>
+                    <div>• <strong>MPIN:</strong> Your 4-digit trading PIN</div>
+                    <div>• <strong>TOTP Key:</strong> Required for secure authentication</div>
                   </div>
                   
                   <div className="mt-3 p-3 bg-blue-100 rounded text-xs">
-                    <strong>Note:</strong> If you get "Invalid TOTP" error, your account requires Two-Factor Authentication. 
-                    Use Session Token method or contact Angel support to disable TOTP for API access.
+                    <strong>TOTP Key Location:</strong> You can find your TOTP Key in the Angel SmartAPI portal under API settings. 
+                    It's typically a long string that's used to generate time-based authentication codes.
                   </div>
                 </div>
               </CardContent>
