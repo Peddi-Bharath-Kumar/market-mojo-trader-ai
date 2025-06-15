@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,7 +19,8 @@ import {
   Settings,
   AlertTriangle
 } from 'lucide-react';
-import { tradingRobotEngine, type TradingSignal } from '@/services/TradingRobotEngine';
+import { tradingRobotEngine } from '@/services/TradingRobotEngine';
+import type { TradingSignal } from '@/services/trading/types';
 import { marketDataService } from '@/services/MarketDataService';
 import { TrailingStopSettings } from './TrailingStopSettings';
 

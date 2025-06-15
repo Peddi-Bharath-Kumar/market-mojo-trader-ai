@@ -1,5 +1,8 @@
+
 import { PositionManager } from './trading/PositionManager';
 import { TradingSignal, MarketCondition, StrategyConfig, Position } from './trading/types';
+
+export type { TradingSignal }; // Re-export for legacy dependencies
 
 export class TradingRobotEngine {
   private config: StrategyConfig;

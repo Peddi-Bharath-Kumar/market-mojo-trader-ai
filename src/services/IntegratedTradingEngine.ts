@@ -1,4 +1,5 @@
-import { TradingSignal } from './TradingRobotEngine';
+
+import { TradingSignal } from './trading/types';
 import { optionsGreeksEngine, type OptionsGreeksData } from './OptionsGreeksEngine';
 import { enhancedTradingEngine } from './EnhancedTradingEngine';
 import { realDataService } from './RealDataService';
