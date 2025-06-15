@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,12 +23,14 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
   });
   
   const [clientId, setClientId] = useState(''); // For Angel Broking
+  const [totp, setTotp] = useState(''); // For Angel Broking TOTP
   const [showSecrets, setShowSecrets] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connected' | 'error'>('disconnected');
   const [lastConnectionTest, setLastConnectionTest] = useState<Date | null>(null);
   const [connectionError, setConnectionError] = useState<string>('');
   const [isRealConnection, setIsRealConnection] = useState(false);
+  const [requiresTOTP, setRequiresTOTP] = useState(false);
 
   const brokers = [
     { 
@@ -61,6 +62,12 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
       return;
     }
 
+    // For Angel Broking, check if TOTP is required but not provided
+    if (config.broker === 'angel' && requiresTOTP && !totp) {
+      alert('Please enter the 6-digit TOTP code from your authenticator app');
+      return;
+    }
+
     setIsConnecting(true);
     setConnectionStatus('disconnected');
     setConnectionError('');
@@ -75,7 +82,8 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
         config.apiKey,
         config.apiSecret,
         config.accessToken,
-        clientId
+        clientId,
+        totp
       );
       
       console.log('🔐 Authentication test result:', testResult);
@@ -83,6 +91,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
       if (testResult.success) {
         setConnectionStatus('connected');
         setIsRealConnection(testResult.realConnection);
+        setRequiresTOTP(false);
         onConfigured(true);
         setLastConnectionTest(new Date());
         
@@ -103,11 +112,14 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
         setConnectionStatus('error');
         setConnectionError(testResult.error || 'Authentication failed');
         setIsRealConnection(testResult.realConnection);
+        setRequiresTOTP(testResult.requiresTOTP || false);
         onConfigured(false);
         
         console.error('❌ Authentication failed:', testResult.error);
         
-        if (testResult.realConnection) {
+        if (testResult.requiresTOTP) {
+          alert(`🔑 TOTP Required\n\nAngel Broking requires 2-Factor Authentication.\n\nPlease:\n1. Open your authenticator app (Google Authenticator, etc.)\n2. Find your Angel Broking TOTP code\n3. Enter the 6-digit code below and test again`);
+        } else if (testResult.realConnection) {
           alert(`❌ Authentication Failed\n\n🔐 Your ${config.broker} credentials are incorrect:\n${testResult.error}\n\nPlease check your API key, secret, and try again.`);
         } else {
           alert(`❌ Connection Failed\n\n🌐 Cannot reach ${config.broker} API:\n${testResult.error}\n\nPlease check your internet connection.`);
@@ -159,7 +171,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                     <div>• Your credentials are tested against REAL broker APIs</div>
                     <div>• Invalid credentials will be REJECTED by the broker</div>
                     <div>• Only successful authentication enables real data</div>
-                    <div>• Test with wrong credentials first to verify security</div>
+                    <div>• Angel Broking requires TOTP (2FA) authentication</div>
                   </div>
                 </div>
               </div>
@@ -169,7 +181,11 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
           {/* Broker Selection */}
           <div>
             <Label htmlFor="broker">Select Your Broker</Label>
-            <Select value={config.broker} onValueChange={(value) => setConfig(prev => ({ ...prev, broker: value }))}>
+            <Select value={config.broker} onValueChange={(value) => {
+              setConfig(prev => ({ ...prev, broker: value }));
+              setRequiresTOTP(false);
+              setTotp('');
+            }}>
               <SelectTrigger>
                 <SelectValue placeholder="Choose your broker platform" />
               </SelectTrigger>
@@ -227,16 +243,39 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                 </div>
 
                 {config.broker === 'angel' && (
-                  <div>
-                    <Label htmlFor="clientId">Client ID (Optional)</Label>
-                    <Input
-                      id="clientId"
-                      type="text"
-                      value={clientId}
-                      onChange={(e) => setClientId(e.target.value)}
-                      placeholder="Your client ID (if different from API key)"
-                    />
-                  </div>
+                  <>
+                    <div>
+                      <Label htmlFor="clientId">Client ID (Optional)</Label>
+                      <Input
+                        id="clientId"
+                        type="text"
+                        value={clientId}
+                        onChange={(e) => setClientId(e.target.value)}
+                        placeholder="Your client ID (if different from API key)"
+                      />
+                    </div>
+
+                    <div>
+                      <Label htmlFor="totp" className="flex items-center gap-2">
+                        TOTP Code
+                        {requiresTOTP && <Badge variant="destructive" className="text-xs">Required</Badge>}
+                      </Label>
+                      <Input
+                        id="totp"
+                        type="text"
+                        maxLength={6}
+                        value={totp}
+                        onChange={(e) => setTotp(e.target.value.replace(/\D/g, ''))}
+                        placeholder="6-digit code from authenticator app"
+                        className={requiresTOTP ? 'border-red-300 focus:border-red-500' : ''}
+                      />
+                      {requiresTOTP && (
+                        <p className="text-xs text-red-600 mt-1">
+                          Angel Broking requires 2FA. Enter the 6-digit TOTP code from your authenticator app.
+                        </p>
+                      )}
+                    </div>
+                  </>
                 )}
 
                 {config.broker === 'zerodha' && (
@@ -307,15 +346,30 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
             </CardContent>
           </Card>
 
-          {/* Test Instructions */}
+          {/* Enhanced Test Instructions for Angel Broking */}
           <Card className="bg-yellow-50 border-yellow-200">
             <CardContent className="p-4">
               <h4 className="font-medium text-yellow-800 mb-3">🧪 Testing Instructions</h4>
               <div className="text-sm text-yellow-700 space-y-2">
-                <div><strong>Step 1:</strong> Try with WRONG credentials first</div>
-                <div><strong>Step 2:</strong> Verify it shows "Authentication Failed"</div>
-                <div><strong>Step 3:</strong> Enter your REAL credentials</div>
-                <div><strong>Step 4:</strong> Verify it shows "Authenticated Successfully"</div>
+                {config.broker === 'angel' ? (
+                  <>
+                    <div><strong>For Angel Broking:</strong></div>
+                    <div><strong>Step 1:</strong> Enter your API Key and MPIN</div>
+                    <div><strong>Step 2:</strong> Open your authenticator app</div>
+                    <div><strong>Step 3:</strong> Enter the 6-digit TOTP code</div>
+                    <div><strong>Step 4:</strong> Click "Test Real Broker Credentials"</div>
+                    <div className="mt-2 p-2 bg-yellow-100 rounded text-xs">
+                      <strong>Note:</strong> Angel Broking requires 2FA authentication. TOTP codes expire every 30 seconds.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div><strong>Step 1:</strong> Try with WRONG credentials first</div>
+                    <div><strong>Step 2:</strong> Verify it shows "Authentication Failed"</div>
+                    <div><strong>Step 3:</strong> Enter your REAL credentials</div>
+                    <div><strong>Step 4:</strong> Verify it shows "Authenticated Successfully"</div>
+                  </>
+                )}
                 <div className="mt-2 p-2 bg-yellow-100 rounded text-xs">
                   <strong>Security:</strong> Only valid credentials will pass authentication
                 </div>
