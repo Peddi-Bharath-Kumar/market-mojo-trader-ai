@@ -37,6 +37,7 @@ class BrokerAccountService {
   private listeners: ((account: BrokerAccount) => void)[] = [];
   private isUsingRealData = false;
   private authToken: string | null = null;
+  private lastRealDataFetch: Date | null = null;
 
   setCredentials(credentials: any) {
     this.credentials = credentials;
@@ -57,26 +58,39 @@ class BrokerAccountService {
 
   async fetchRealAccountData(): Promise<BrokerAccount> {
     if (!this.credentials) {
-      console.warn('⚠️ No broker credentials configured - using simulation');
-      return this.getRealisticSimulatedAccount();
+      console.warn('⚠️ No broker credentials configured - returning simulation');
+      throw new Error('No broker credentials configured');
     }
 
     console.log('🔄 Fetching REAL account data from', this.credentials.broker);
     
     try {
+      let realAccountData: BrokerAccount;
+      
       if (this.credentials.broker === 'angel') {
-        return await this.fetchAngelAccountData();
+        realAccountData = await this.fetchAngelAccountData();
       } else if (this.credentials.broker === 'zerodha') {
-        return await this.fetchZerodhaAccountData();
+        realAccountData = await this.fetchZerodhaAccountData();
       } else if (this.credentials.broker === 'upstox') {
-        return await this.fetchUpstoxAccountData();
+        realAccountData = await this.fetchUpstoxAccountData();
+      } else {
+        throw new Error(`Unsupported broker: ${this.credentials.broker}`);
       }
       
-      throw new Error(`Unsupported broker: ${this.credentials.broker}`);
+      // Validate that we got real data (not simulation)
+      if (realAccountData.accountId.startsWith('SIM_')) {
+        console.warn('⚠️ Broker API returned simulated data - treating as failure');
+        throw new Error('Broker API returned simulated data');
+      }
+      
+      this.lastRealDataFetch = new Date();
+      console.log('✅ Successfully fetched REAL broker account data');
+      return realAccountData;
+      
     } catch (error) {
       console.error('❌ Failed to fetch REAL account data:', error);
-      console.warn('🔄 API call failed - falling back to simulation');
-      return this.getEnhancedSimulatedAccount();
+      console.warn('🔄 API call failed - will not use simulation fallback');
+      throw error; // Don't fallback to simulation - let caller handle
     }
   }
 
@@ -104,17 +118,21 @@ class BrokerAccountService {
       });
 
       if (!authResponse.ok) {
-        throw new Error(`Authentication failed: ${authResponse.status}`);
+        const errorText = await authResponse.text();
+        console.error('❌ Angel Broking auth failed:', errorText);
+        throw new Error(`Authentication failed: HTTP ${authResponse.status}`);
       }
 
       const authData = await authResponse.json();
-      console.log('🔐 Angel Broking auth status:', authData.status ? '✅ Success' : '❌ Failed');
+      console.log('🔐 Angel Broking auth response:', authData);
 
       if (!authData.status || !authData.data?.jwtToken) {
+        console.error('❌ Angel Broking auth failed:', authData);
         throw new Error(`Authentication failed: ${authData.message || 'No token received'}`);
       }
 
       this.authToken = authData.data.jwtToken;
+      console.log('✅ Angel Broking authentication successful');
       
       // Step 2: Fetch REAL account funds (your actual money)
       console.log('💰 Fetching your REAL account balance...');
@@ -136,7 +154,9 @@ class BrokerAccountService {
       let fundsData = null;
       if (fundsResponse.ok) {
         fundsData = await fundsResponse.json();
-        console.log('💰 Funds API response:', fundsData);
+        console.log('💰 Angel Funds API response:', fundsData);
+      } else {
+        console.warn('⚠️ Failed to fetch funds data:', await fundsResponse.text());
       }
 
       // Step 3: Fetch REAL positions (your current trades)
@@ -159,7 +179,9 @@ class BrokerAccountService {
       let positionsData = null;
       if (positionsResponse.ok) {
         positionsData = await positionsResponse.json();
-        console.log('📊 Positions API response:', positionsData);
+        console.log('📊 Angel Positions API response:', positionsData);
+      } else {
+        console.warn('⚠️ Failed to fetch positions data:', await positionsResponse.text());
       }
 
       // Step 4: Fetch REAL holdings (your long-term investments)
@@ -182,7 +204,9 @@ class BrokerAccountService {
       let holdingsData = null;
       if (holdingsResponse.ok) {
         holdingsData = await holdingsResponse.json();
-        console.log('🏦 Holdings API response:', holdingsData);
+        console.log('🏦 Angel Holdings API response:', holdingsData);
+      } else {
+        console.warn('⚠️ Failed to fetch holdings data:', await holdingsResponse.text());
       }
 
       // Process your REAL account data
@@ -191,7 +215,7 @@ class BrokerAccountService {
         const positions = positionsData?.data || [];
         const holdings = holdingsData?.data || [];
 
-        console.log('✅ YOUR REAL Angel Broking data:');
+        console.log('✅ Processing YOUR REAL Angel Broking data:');
         console.log('💰 Available Cash: ₹', rmsData.availablecash);
         console.log('📊 Used Margin: ₹', rmsData.collateral);
         console.log('🏦 Your Positions:', positions.length);
@@ -250,7 +274,7 @@ class BrokerAccountService {
         const dayPnLPercent = totalValue > 0 ? (dayPnL / totalValue) * 100 : 0;
 
         const realAccountData: BrokerAccount = {
-          accountId: this.credentials.clientId,
+          accountId: this.credentials.clientId, // Real account ID, not simulation
           availableBalance,
           usedMargin,
           totalValue,
@@ -263,7 +287,7 @@ class BrokerAccountService {
         this.accountData = realAccountData;
         this.notifyListeners(realAccountData);
         
-        console.log('🎉 YOUR REAL ACCOUNT DATA LOADED:');
+        console.log('🎉 YOUR REAL ANGEL BROKING ACCOUNT DATA LOADED:');
         console.log('💰 Available Balance: ₹', availableBalance.toLocaleString());
         console.log('💎 Holdings Value: ₹', holdingsValue.toLocaleString());
         console.log('📈 Total Portfolio: ₹', totalValue.toLocaleString());
@@ -272,11 +296,11 @@ class BrokerAccountService {
         return realAccountData;
       }
 
-      throw new Error('Failed to get valid account data from Angel Broking');
+      throw new Error('Failed to get valid account data from Angel Broking API');
 
     } catch (error) {
       console.error('❌ Angel Broking API Error:', error);
-      throw error;
+      throw error; // Don't fallback to simulation
     }
   }
 
@@ -373,7 +397,6 @@ class BrokerAccountService {
   }
 
   private async fetchUpstoxAccountData(): Promise<BrokerAccount> {
-    // TODO: Implement Upstox integration
     throw new Error('Upstox integration not yet implemented');
   }
 
@@ -447,7 +470,8 @@ class BrokerAccountService {
       try {
         await this.fetchRealAccountData();
       } catch (error) {
-        console.warn('Failed to update account data:', error);
+        console.warn('⚠️ Real-time update failed:', error);
+        // Don't fallback to simulation during real-time updates
       }
     }, 30000);
   }
@@ -465,7 +489,11 @@ class BrokerAccountService {
   }
 
   isUsingRealBrokerData(): boolean {
-    return this.isUsingRealData && this.credentials !== null;
+    return this.isUsingRealData && 
+           this.credentials !== null && 
+           this.lastRealDataFetch !== null &&
+           this.accountData !== null &&
+           !this.accountData.accountId.startsWith('SIM_');
   }
 }
 

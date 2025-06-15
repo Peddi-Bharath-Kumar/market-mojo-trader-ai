@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { TrendingUp, TrendingDown, Activity, Wifi, WifiOff, User, Briefcase, DollarSign, PieChart } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, Wifi, WifiOff, User, Briefcase, DollarSign, PieChart, AlertTriangle } from 'lucide-react';
 import { marketDataService, type MarketTick, type Position } from '@/services/MarketDataService';
 import { brokerAccountService, type BrokerAccount } from '@/services/BrokerAccountService';
 
@@ -19,20 +19,22 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
   const [brokerAccount, setBrokerAccount] = useState<BrokerAccount | null>(null);
   const [selectedSymbol, setSelectedSymbol] = useState('NIFTY50');
   const [isConnected, setIsConnected] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
   const [realDataEnabled, setRealDataEnabled] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [isRealBrokerConnected, setIsRealBrokerConnected] = useState(false);
 
-  const symbols = ['NIFTY50', 'BANKNIFTY', 'RELIANCE', 'TCS', 'HDFC', 'INFY', 'ITC', 'ICICIBANK', 'SBIN', 'BHARTIARTL', 'MAZDOCK-EQ'];
+  const symbols = ['NIFTY50', 'BANKNIFTY', 'RELIANCE', 'TCS', 'HDFC', 'INFY', 'ITC', 'ICICIBANK', 'SBIN', 'BHARTIARTL'];
 
-  // Check for saved credentials and restore connection state
+  // Check for saved credentials and validate real connection
   useEffect(() => {
-    console.log('🔄 MarketDataPanel: Checking for saved credentials...');
+    console.log('🔄 MarketDataPanel: Checking for authenticated broker connection...');
     const savedCredentials = localStorage.getItem('trading-credentials');
     if (savedCredentials) {
       try {
         const credentials = JSON.parse(savedCredentials);
         if (credentials.isAuthenticated) {
-          console.log('✅ Found authenticated credentials, restoring connection...');
+          console.log('✅ Found authenticated credentials, testing real broker connection...');
           setRealDataEnabled(true);
           
           // Set broker credentials
@@ -48,27 +50,34 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
               credentials.accessToken
           });
           
+          // Test real broker connection
+          testRealBrokerConnection();
+          
           console.log('🔗 Market data service configured for:', credentials.broker);
         }
       } catch (error) {
         console.error('❌ Failed to restore credentials:', error);
+        setConnectionError('Failed to restore saved credentials');
       }
+    } else {
+      console.warn('⚠️ No saved credentials found - real broker data not available');
+      setConnectionError('No broker credentials configured');
     }
   }, []);
 
-  // Load real broker account data when credentials are available
-  useEffect(() => {
-    if (realDataEnabled) {
-      console.log('💰 Loading real broker account data...');
-      loadBrokerAccountData();
+  const testRealBrokerConnection = async () => {
+    try {
+      console.log('🧪 Testing real broker API connection...');
+      const accountData = await brokerAccountService.fetchRealAccountData();
       
-      // Subscribe to account updates
-      brokerAccountService.subscribe((account: BrokerAccount) => {
-        console.log('📊 Broker account updated:', account);
-        setBrokerAccount(account);
+      if (accountData && accountData.accountId && !accountData.accountId.startsWith('SIM_')) {
+        console.log('✅ REAL broker connection successful!');
+        setIsRealBrokerConnected(true);
+        setBrokerAccount(accountData);
+        setConnectionError(null);
         
-        // Extract positions for market data display
-        const brokerPositions: Position[] = account.positions.map(pos => ({
+        // Extract real positions
+        const brokerPositions: Position[] = accountData.positions.map(pos => ({
           symbol: pos.symbol,
           quantity: pos.quantity,
           averagePrice: pos.averagePrice,
@@ -78,31 +87,35 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
           type: pos.quantity > 0 ? 'long' : 'short'
         }));
         setPositions(brokerPositions);
-      });
-    }
-  }, [realDataEnabled]);
-
-  const loadBrokerAccountData = async () => {
-    try {
-      console.log('🔄 Fetching real broker account data...');
-      const accountData = await brokerAccountService.fetchRealAccountData();
-      setBrokerAccount(accountData);
-      
-      // Extract positions
-      const brokerPositions: Position[] = accountData.positions.map(pos => ({
-        symbol: pos.symbol,
-        quantity: pos.quantity,
-        averagePrice: pos.averagePrice,
-        currentPrice: pos.currentPrice,
-        pnl: pos.pnl,
-        pnlPercent: pos.pnlPercent,
-        type: pos.quantity > 0 ? 'long' : 'short'
-      }));
-      setPositions(brokerPositions);
-      
-      console.log('✅ Real broker account data loaded successfully');
+        
+        console.log(`📊 Loaded ${brokerPositions.length} REAL positions from broker`);
+        
+        // Subscribe to real-time account updates
+        brokerAccountService.subscribe((account: BrokerAccount) => {
+          console.log('📊 Real-time broker account update received');
+          setBrokerAccount(account);
+          
+          const updatedPositions: Position[] = account.positions.map(pos => ({
+            symbol: pos.symbol,
+            quantity: pos.quantity,
+            averagePrice: pos.averagePrice,
+            currentPrice: pos.currentPrice,
+            pnl: pos.pnl,
+            pnlPercent: pos.pnlPercent,
+            type: pos.quantity > 0 ? 'long' : 'short'
+          }));
+          setPositions(updatedPositions);
+        });
+        
+      } else {
+        console.warn('⚠️ Broker API returned simulated data - real connection failed');
+        setIsRealBrokerConnected(false);
+        setConnectionError('Broker API authentication failed - using simulation');
+      }
     } catch (error) {
-      console.error('❌ Failed to load broker account data:', error);
+      console.error('❌ Real broker connection test failed:', error);
+      setIsRealBrokerConnected(false);
+      setConnectionError(`Broker API error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -129,42 +142,49 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
   const connectToMarket = async () => {
     const savedCredentials = localStorage.getItem('trading-credentials');
     if (!savedCredentials) {
-      alert('Please configure your broker API keys in the Config tab first');
+      setConnectionError('Please configure your broker API keys in the Config tab first');
       return;
     }
 
     try {
       const credentials = JSON.parse(savedCredentials);
       if (!credentials.isAuthenticated) {
-        alert('Please authenticate your credentials in the Config tab first');
+        setConnectionError('Please authenticate your credentials in the Config tab first');
         return;
       }
     } catch (error) {
-      alert('Invalid credentials found. Please reconfigure in the Config tab.');
+      setConnectionError('Invalid credentials found. Please reconfigure in the Config tab.');
       return;
     }
 
     setConnectionStatus('connecting');
+    setConnectionError(null);
     console.log('🔗 Connecting to market data with real broker credentials...');
 
     try {
+      // Test broker connection first
+      await testRealBrokerConnection();
+      
       // Simulate connection delay
       await new Promise(resolve => setTimeout(resolve, 2000));
       
       await marketDataService.connect();
       setIsConnected(true);
       setConnectionStatus('connected');
-      setRealDataEnabled(true);
       
-      // Load real account data
-      await loadBrokerAccountData();
+      console.log('✅ Successfully connected to market data');
       
-      console.log('✅ Successfully connected to market data with real broker integration');
-      console.log(`📊 Loaded ${positions.length} positions from your broker account`);
+      if (isRealBrokerConnected) {
+        console.log('🎉 Using REAL broker data');
+      } else {
+        console.warn('⚠️ Using simulated data - real broker connection failed');
+        setConnectionError('Real broker API unavailable - using simulation');
+      }
+      
     } catch (error) {
       console.error('❌ Failed to connect to market data:', error);
-      setConnectionStatus('disconnected');
-      alert('Failed to connect to market data. Please check your API configuration.');
+      setConnectionStatus('error');
+      setConnectionError(`Connection failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -173,6 +193,7 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
     setIsConnected(false);
     setConnectionStatus('disconnected');
     setMarketData([]);
+    setConnectionError(null);
     console.log('🔌 Disconnected from market data feed');
   };
 
@@ -182,6 +203,8 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
         return <Wifi className="h-4 w-4 text-green-500" />;
       case 'connecting':
         return <Activity className="h-4 w-4 text-yellow-500 animate-pulse" />;
+      case 'error':
+        return <AlertTriangle className="h-4 w-4 text-red-500" />;
       default:
         return <WifiOff className="h-4 w-4 text-red-500" />;
     }
@@ -190,9 +213,11 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
   const getConnectionStatus = () => {
     switch (connectionStatus) {
       case 'connected':
-        return realDataEnabled ? 'Connected (Real Data)' : 'Connected (Simulated)';
+        return isRealBrokerConnected ? 'Connected (Real Broker Data)' : 'Connected (Simulation - Broker API Failed)';
       case 'connecting':
         return 'Connecting...';
+      case 'error':
+        return 'Connection Error';
       default:
         return 'Disconnected';
     }
@@ -211,14 +236,32 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
 
   return (
     <div className="space-y-6">
+      {/* Connection Status Alert */}
+      {connectionError && (
+        <Card className="bg-red-50 border-red-200">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+              <div>
+                <div className="font-medium text-red-800">Connection Issue</div>
+                <div className="text-sm text-red-700">{connectionError}</div>
+                <div className="text-xs text-red-600 mt-1">
+                  All displayed data is simulated. Fix broker connection to see real data.
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Real Account Overview */}
-      {brokerAccount && (
+      {brokerAccount && isRealBrokerConnected ? (
         <Card className="bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-green-800">
               <DollarSign className="h-5 w-5" />
               Your Real Trading Account
-              <Badge className="bg-green-600 text-white">LIVE DATA</Badge>
+              <Badge className="bg-green-600 text-white">LIVE BROKER DATA</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -249,12 +292,26 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
             </div>
           </CardContent>
         </Card>
-      )}
+      ) : brokerAccount && !isRealBrokerConnected ? (
+        <Card className="bg-orange-50 border-orange-200">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-orange-600" />
+              <div>
+                <div className="font-medium text-orange-800">Simulated Account Data</div>
+                <div className="text-sm text-orange-700">
+                  Broker API connection failed - showing simulated data for testing
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
-            Real-time Market Data
+            Market Data
             <div className="flex items-center gap-2">
               {getConnectionIcon()}
               <span className="text-sm text-gray-500">
@@ -269,9 +326,13 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
                   {positions.length} positions
                 </Badge>
               )}
-              {realDataEnabled && (
+              {isRealBrokerConnected ? (
                 <Badge className="bg-green-600 text-white">
-                  REAL DATA
+                  REAL BROKER
+                </Badge>
+              ) : (
+                <Badge variant="destructive">
+                  SIMULATION
                 </Badge>
               )}
             </div>
@@ -284,11 +345,15 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
               <div className="flex items-center gap-2">
                 <Activity className={`h-4 w-4 ${isMarketOpen() ? 'text-green-600' : 'text-orange-600'}`} />
                 <span className={`font-medium ${isMarketOpen() ? 'text-green-800' : 'text-orange-800'}`}>
-                  {isMarketOpen() ? 'Market is Open - Live Data' : 'Market is Closed - Showing Last Known Prices'}
+                  {isMarketOpen() ? 'Market is Open' : 'Market is Closed - Showing Last Known Prices'}
                 </span>
-                {realDataEnabled && (
-                  <Badge variant="outline" className="text-xs">
-                    Real Broker Data
+                {isRealBrokerConnected ? (
+                  <Badge variant="outline" className="text-xs bg-green-50 text-green-700">
+                    Real Broker Connected
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-xs bg-red-50 text-red-700">
+                    Broker API Failed - Simulation Mode
                   </Badge>
                 )}
               </div>
@@ -321,7 +386,11 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
                   <User className="h-5 w-5 text-blue-600" />
                   <h4 className="font-medium text-lg">Your Trading Positions</h4>
                   <Badge variant="default">{positions.length} Active</Badge>
-                  {realDataEnabled && <Badge className="bg-green-600 text-white text-xs">REAL POSITIONS</Badge>}
+                  {isRealBrokerConnected ? (
+                    <Badge className="bg-green-600 text-white text-xs">REAL POSITIONS</Badge>
+                  ) : (
+                    <Badge variant="destructive" className="text-xs">SIMULATED</Badge>
+                  )}
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -381,7 +450,7 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
                         <div className="flex items-center gap-1">
                           <Activity className={`h-3 w-3 ${isMarketOpen() ? 'text-blue-500 animate-pulse' : 'text-gray-400'}`} />
                           <span className="text-xs text-gray-500">
-                            {isMarketOpen() ? (realDataEnabled ? 'REAL' : 'LIVE') : 'CLOSED'}
+                            {isMarketOpen() ? (isRealBrokerConnected ? 'REAL' : 'SIM') : 'CLOSED'}
                           </span>
                         </div>
                       </div>
@@ -423,16 +492,11 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
             {!isConnected && (
               <div className="text-center py-8 text-gray-500">
                 <WifiOff className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>Connect to market data to see real-time prices and your positions</p>
+                <p>Connect to market data to see prices and your positions</p>
                 <p className="text-sm">Configure your broker API in the Config tab first</p>
-                {!realDataEnabled && (
+                {!isRealBrokerConnected && (
                   <Badge variant="destructive" className="mt-2">
-                    Real Data Not Available
-                  </Badge>
-                )}
-                {realDataEnabled && (
-                  <Badge className="mt-2 bg-green-600 text-white">
-                    Real Broker Connected - Ready to Connect
+                    Real Broker Data Not Available
                   </Badge>
                 )}
               </div>
@@ -448,7 +512,11 @@ export const MarketDataPanel: React.FC<MarketDataPanelProps> = ({ apiConfigured 
             <h4 className="font-medium mb-3 flex items-center gap-2">
               <PieChart className="h-4 w-4" />
               Market Summary
-              {realDataEnabled && <Badge className="bg-green-600 text-white text-xs">REAL DATA</Badge>}
+              {isRealBrokerConnected ? (
+                <Badge className="bg-green-600 text-white text-xs">REAL DATA</Badge>
+              ) : (
+                <Badge variant="destructive" className="text-xs">SIMULATION</Badge>
+              )}
             </h4>
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
               <div>
