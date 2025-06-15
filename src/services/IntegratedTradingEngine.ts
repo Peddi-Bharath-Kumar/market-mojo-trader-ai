@@ -1,3 +1,4 @@
+
 import { TradingSignal } from './TradingRobotEngine';
 import { optionsGreeksEngine, type OptionsGreeksData } from './OptionsGreeksEngine';
 import { enhancedTradingEngine } from './EnhancedTradingEngine';
@@ -97,8 +98,11 @@ export class IntegratedTradingEngine {
 
   private async closeAllIntradayPositions(): Promise<void> {
     const positions = marketDataService.getPositions();
+    // Filter intraday positions by checking if they contain 'intraday' or 'mis' in strategy/type
     const intradayPositions = positions.filter(pos => 
-      pos.product === 'mis' // Only check product property for intraday positions
+      pos.strategy?.toLowerCase().includes('intraday') ||
+      pos.strategy?.toLowerCase().includes('scalping') ||
+      pos.type === 'intraday'
     );
     
     for (const position of intradayPositions) {
