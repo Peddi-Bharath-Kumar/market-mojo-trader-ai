@@ -1,4 +1,5 @@
-import { TradingSignal } from './TradingRobotEngine';
+
+import { TradingSignal } from './trading/types';
 import { realDataService } from './RealDataService';
 
 export interface SignalScore {
