@@ -158,14 +158,18 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
             <Settings className="h-5 w-5" />
             Broker API Configuration
             <div className="flex items-center gap-2">
-              {connectionStatus === 'connected' && <Badge className="bg-green-500 text-white flex items-center gap-1">
-                <CheckCircle className="h-3 w-3" />
-                {isRealConnection ? 'REAL CONNECTION' : 'Simulated'}
-              </Badge>}
-              {connectionStatus === 'error' && <Badge variant="destructive" className="flex items-center gap-1">
-                <XCircle className="h-3 w-3" />
-                Authentication Failed
-              </Badge>}
+              {connectionStatus === 'connected' && (
+                <Badge className="bg-green-500 text-white flex items-center gap-1">
+                  <CheckCircle className="h-3 w-3" />
+                  {isRealConnection ? 'REAL CONNECTION' : 'Simulated'}
+                </Badge>
+              )}
+              {connectionStatus === 'error' && (
+                <Badge variant="destructive" className="flex items-center gap-1">
+                  <XCircle className="h-3 w-3" />
+                  Authentication Failed
+                </Badge>
+              )}
             </div>
           </CardTitle>
         </CardHeader>
@@ -345,7 +349,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                 </div>
               </div>
             </CardContent>
-          )}
+          </Card>
 
           {/* Angel Broking Instructions */}
           {config.broker === 'angel' && (
