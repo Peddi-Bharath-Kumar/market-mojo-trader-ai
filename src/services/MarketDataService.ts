@@ -104,30 +104,37 @@ class MarketDataService {
 
   // Get real-time price for a specific symbol
   async getRealTimePrice(symbol: string): Promise<any> {
-    if (this.isRealDataMode && this.apiConfig?.broker === 'zerodha') {
+    if (this.isRealDataMode && this.apiConfig?.broker) {
       try {
-        const instruments = [`NSE:${symbol}`];
-        const quotes = await zerodhaKiteService.getQuote(instruments);
-        
-        if (quotes && quotes[`NSE:${symbol}`]) {
-          const data = quotes[`NSE:${symbol}`];
-          return {
-            symbol,
-            ltp: parseFloat(data.last_price),
-            change: parseFloat(data.net_change || '0'),
-            volume: parseInt(data.volume || '0'),
-            high: parseFloat(data.ohlc?.high || data.last_price),
-            low: parseFloat(data.ohlc?.low || data.last_price),
-            open: parseFloat(data.ohlc?.open || data.last_price),
-            timestamp: Date.now()
-          };
+        if (this.apiConfig.broker === 'zerodha') {
+            const instruments = [`NSE:${symbol}`];
+            const quotes = await zerodhaKiteService.getQuote(instruments);
+            
+            if (quotes && quotes[`NSE:${symbol}`]) {
+              const data = quotes[`NSE:${symbol}`];
+              return {
+                symbol,
+                ltp: parseFloat(data.last_price),
+                change: parseFloat(data.net_change || '0'),
+                volume: parseInt(data.volume || '0'),
+                high: parseFloat(data.ohlc?.high || data.last_price),
+                low: parseFloat(data.ohlc?.low || data.last_price),
+                open: parseFloat(data.ohlc?.open || data.last_price),
+                timestamp: Date.now()
+              };
+            }
+            throw new Error(`Quote for ${symbol} not found in Zerodha response.`);
         }
+        // NOTE: Logic for other brokers like 'angel' would be added here.
       } catch (error) {
-        console.warn(`Failed to get real price for ${symbol}:`, error);
+        console.error(`❌ Failed to get REAL price for ${symbol}:`, error);
+        // Re-throw the error to be handled by the caller, ensuring failures are not silent.
+        throw error;
       }
     }
     
-    // Fallback to simulated but current prices
+    // If not in real data mode, then simulate.
+    console.log(`🎭 Simulating price for ${symbol} as real data mode is not active.`);
     return this.getCurrentMarketPrice(symbol);
   }
 

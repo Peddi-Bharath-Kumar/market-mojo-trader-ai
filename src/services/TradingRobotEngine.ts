@@ -1,6 +1,7 @@
-
 import { PositionManager } from './trading/PositionManager';
 import { TradingSignal, MarketCondition, StrategyConfig, Position } from './trading/types';
+import { orderExecutionService, OrderRequest } from './OrderExecutionService';
+import { marketDataService } from './MarketDataService';
 
 export type { TradingSignal }; // Re-export for legacy dependencies
 
@@ -69,11 +70,12 @@ export class TradingRobotEngine {
   }
 
   private closeIntradayPositions(): void {
-    const closedPositions = this.positionManager.closeIntradayPositions();
+    const intradayPositions = this.positionManager.getPositions().filter(p => p.strategy.includes('Intraday'));
     
-    closedPositions.forEach(position => {
-      this.updateStatsOnClose(position);
-      console.log(`- P&L: ${position.pnlPercent.toFixed(2)}%`);
+    console.log(`Closing ${intradayPositions.length} intraday positions.`);
+    
+    intradayPositions.forEach(position => {
+        this.closePosition(position, 'End of day closure');
     });
   }
 
@@ -175,21 +177,44 @@ export class TradingRobotEngine {
   private monitorMarket(): void {
     if (!this.isActive) return;
 
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       if (!this.isActive || !this.isMarketTime()) {
         clearInterval(interval);
         return;
       }
 
       this.analyzeMarketConditions();
-      this.positionManager.updatePositions();
+      await this.updatePositionsWithRealData();
       this.updateDailyStats();
-      this.manageRiskAndTrailing();
+      await this.manageRiskAndTrailing();
       
       if (this.shouldGenerateSignals()) {
-        this.generateSignals();
+        await this.generateSignals();
       }
     }, 15000); // Check every 15 seconds
+  }
+
+  private async updatePositionsWithRealData(): Promise<void> {
+    const { isLiveTrading } = orderExecutionService.getTradingStatus();
+    if (!isLiveTrading) {
+      this.positionManager.updatePositions(); // Fallback to simulation if not live
+      return;
+    }
+
+    const positions = this.positionManager.getPositions();
+    if (positions.length === 0) return;
+
+    console.log('🔄 Fetching real-time prices for open positions...');
+    for (const position of positions) {
+      try {
+        const priceData = await marketDataService.getRealTimePrice(position.symbol);
+        if (priceData && priceData.ltp) {
+          this.positionManager.updatePositionPrice(position.id, priceData.ltp);
+        }
+      } catch (error) {
+        console.warn(`Could not fetch price for ${position.symbol}, it might be closed or API failed.`, error);
+      }
+    }
   }
 
   private shouldGenerateSignals(): boolean {
@@ -216,25 +241,25 @@ export class TradingRobotEngine {
     stats.maxDrawdown = Math.min(stats.maxDrawdown, stats.currentDrawdown);
   }
 
-  private manageRiskAndTrailing(): void {
-    this.positionManager.getPositions().forEach(position => {
+  private async manageRiskAndTrailing(): Promise<void> {
+    for (const position of this.positionManager.getPositions()) {
       if (position.pnlPercent < -5.0) {
         console.log(`⚠️ Risk limit hit for ${position.symbol} - Auto closing`);
-        this.closePosition(position, 'Risk management - Max loss exceeded');
-        return;
+        await this.closePosition(position, 'Risk management - Max loss exceeded');
+        continue;
       }
       
-      this.manageTrailingStop(position);
+      await this.manageTrailingStop(position);
       
       if (this.config.partialProfitBooking) {
         this.handlePartialProfitBooking(position);
       }
       
-      this.checkTimeBasedExit(position);
-    });
+      await this.checkTimeBasedExit(position);
+    }
   }
 
-  private manageTrailingStop(position: Position): void {
+  private async manageTrailingStop(position: Position): Promise<void> {
     if (!this.config.trailingStopEnabled) return;
     
     const profitPercent = position.pnlPercent;
@@ -262,7 +287,7 @@ export class TradingRobotEngine {
       }
     }
     
-    this.checkExitConditions(position);
+    await this.checkExitConditions(position);
   }
 
   private handlePartialProfitBooking(position: Position): void {
@@ -287,20 +312,20 @@ export class TradingRobotEngine {
     }
   }
 
-  private checkTimeBasedExit(position: Position): void {
+  private async checkTimeBasedExit(position: Position): Promise<void> {
     const holdingTime = Date.now() - position.entryTime.getTime();
     const hour = new Date().getHours() + new Date().getMinutes() / 60;
     
     if (position.strategy.includes('Scalping') && holdingTime > 1800000) {
-      this.closePosition(position, 'Scalping time limit reached');
+      await this.closePosition(position, 'Scalping time limit reached');
     }
     
     if (hour >= 15.25 && position.strategy.includes('Intraday')) {
-      this.closePosition(position, 'Market closing - Intraday exit');
+      await this.closePosition(position, 'Market closing - Intraday exit');
     }
   }
 
-  private checkExitConditions(position: Position): void {
+  private async checkExitConditions(position: Position): Promise<void> {
     const shouldExit = 
       (position.action === 'buy' && position.currentPrice <= position.stopLoss) ||
       (position.action === 'sell' && position.currentPrice >= position.stopLoss) ||
@@ -309,13 +334,32 @@ export class TradingRobotEngine {
 
     if (shouldExit) {
       const reason = position.pnlPercent > 0 ? 'Target/Trailing Stop' : 'Stop Loss';
-      this.closePosition(position, reason);
+      await this.closePosition(position, reason);
     }
   }
 
-  private closePosition(position: Position, reason: string): void {
+  private async closePosition(position: Position, reason: string): Promise<void> {
     console.log(`🔄 Closing ${position.symbol}: ${reason} - P&L: ${position.pnlPercent.toFixed(2)}%`);
     
+    const { isLiveTrading } = orderExecutionService.getTradingStatus();
+
+    if (isLiveTrading) {
+      try {
+        const orderRequest: OrderRequest = {
+          symbol: position.symbol,
+          action: position.action === 'buy' ? 'sell' : 'buy',
+          orderType: 'market',
+          quantity: position.quantity,
+          product: 'mis',
+          validity: 'day',
+        };
+        const response = await orderExecutionService.placeOrder(orderRequest);
+        console.log(`✅ Live closing order placed for ${position.symbol}:`, response.orderId);
+      } catch (error) {
+        console.error(`❌ Failed to place LIVE closing order for ${position.symbol}:`, error);
+      }
+    }
+
     const closedPosition = this.positionManager.closePosition(position.id);
 
     if (closedPosition) {
@@ -330,7 +374,7 @@ export class TradingRobotEngine {
     }
   }
 
-  public generateSignals(): TradingSignal[] {
+  public async generateSignals(): Promise<TradingSignal[]> {
     if (!this.marketCondition) return [];
 
     const signals: TradingSignal[] = [];
@@ -338,13 +382,14 @@ export class TradingRobotEngine {
 
     for (const symbol of symbols) {
       if (this.positionManager.getPositionCount() >= this.config.maxPositions) break;
+      if (this.positionManager.getPositions().some(p => p.symbol === symbol)) continue;
 
       // Intraday Strategy
       if (this.config.intradayEnabled) {
         const intradaySignal = this.intradayStrategy(symbol);
         if (intradaySignal) {
-          const newPosition = this.positionManager.createPosition(intradaySignal);
-          if (newPosition) {
+          const isPlaced = await this.executeSignal(intradaySignal);
+          if (isPlaced) {
             signals.push(intradaySignal);
           }
         }
@@ -354,8 +399,8 @@ export class TradingRobotEngine {
       if (this.config.optionsEnabled) {
         const optionsSignal = this.optionsStrategy(symbol);
         if (optionsSignal) {
-           const newPosition = this.positionManager.createPosition(optionsSignal);
-          if (newPosition) {
+           const isPlaced = await this.executeSignal(optionsSignal);
+          if (isPlaced) {
             signals.push(optionsSignal);
           }
         }
@@ -369,8 +414,46 @@ export class TradingRobotEngine {
     return signals;
   }
 
-  private createPosition(signal: TradingSignal): void {
-    
+  private async executeSignal(signal: TradingSignal): Promise<boolean> {
+    const { isLiveTrading } = orderExecutionService.getTradingStatus();
+
+    if (isLiveTrading) {
+        console.log(`🔴 Executing LIVE order for ${signal.symbol}`);
+        try {
+            const orderRequest: OrderRequest = {
+                symbol: signal.symbol,
+                action: signal.action,
+                orderType: signal.orderType === 'limit' ? 'limit' : 'market',
+                quantity: signal.quantity,
+                price: signal.price,
+                stopLoss: signal.stopLoss,
+                target: signal.target,
+                product: 'mis', // Assuming intraday
+                validity: 'day',
+            };
+            
+            const response = await orderExecutionService.placeOrder(orderRequest);
+            console.log('✅ Live order placement response:', response);
+
+            const newPosition = this.positionManager.createPosition(signal);
+            if (newPosition) {
+                console.log(`📈 Position for ${signal.symbol} created locally for tracking.`);
+                return true;
+            }
+            return false;
+            
+        } catch (error) {
+            console.error(`❌ Failed to place LIVE order for ${signal.symbol}:`, error);
+            return false;
+        }
+    } else {
+        console.log(`🎭 Executing SIMULATED order for ${signal.symbol}`);
+        const newPosition = this.positionManager.createPosition(signal);
+        if (newPosition) {
+            return true;
+        }
+        return false;
+    }
   }
 
   private intradayStrategy(symbol: string): TradingSignal | null {
