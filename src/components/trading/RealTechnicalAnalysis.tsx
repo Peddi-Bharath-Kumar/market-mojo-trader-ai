@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -69,7 +70,7 @@ export const RealTechnicalAnalysis = () => {
         },
         {
           indicator: 'SMA (20)',
-          value: data.sma20.toFixed(2),
+          value: data.movingAverages['20_sma'].toFixed(2),
           signal: 'hold', // Would need current price to determine
           strength: 60,
           description: '20-period Simple Moving Average',
@@ -77,7 +78,7 @@ export const RealTechnicalAnalysis = () => {
         },
         {
           indicator: 'EMA (12)',
-          value: data.ema12.toFixed(2),
+          value: data.movingAverages['12_ema'].toFixed(2),
           signal: 'hold',
           strength: 65,
           description: '12-period Exponential Moving Average',
