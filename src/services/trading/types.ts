@@ -1,3 +1,4 @@
+
 import type { OptionsGreeksData } from '../OptionsGreeksEngine';
 
 export interface TradingSignal {
@@ -63,5 +64,5 @@ export interface Position {
   sector: string;
   liquidityScore: number;
   correlationRisk: number;
-  product?: 'mis' | 'cnc' | 'nrml'; // Add product property
+  product?: 'mis' | 'cnc' | 'nrml';
 }

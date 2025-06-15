@@ -1,4 +1,3 @@
-
 import { TradingSignal } from './trading/types';
 import { realDataService } from './RealDataService';
 
@@ -35,7 +34,7 @@ export interface DynamicAllocation {
 }
 
 export interface EnhancedTradingSignal extends TradingSignal {
-  signalScore: SignalScore;
+  signalScoreBreakdown: SignalScore; // Renamed from signalScore to resolve conflict
   marketRegime: MarketRegime;
   patternConfidence: number;
   riskRewardRatio: number;
@@ -451,7 +450,7 @@ export class EnhancedTradingEngine {
   }
 
   public enhanceSignal(baseSignal: TradingSignal, technicalData: any): EnhancedTradingSignal {
-    const signalScore = this.scoreSignal(baseSignal, technicalData);
+    const signalScoreBreakdown = this.scoreSignal(baseSignal, technicalData);
     
     // Calculate risk-reward ratio
     const riskRewardRatio = baseSignal.target && baseSignal.stopLoss ? 
@@ -485,9 +484,10 @@ export class EnhancedTradingEngine {
 
     return {
       ...baseSignal,
-      signalScore,
+      signalScore: signalScoreBreakdown.totalScore, // Set the numeric score for compatibility
+      signalScoreBreakdown: signalScoreBreakdown, // Keep the detailed breakdown
       marketRegime: this.marketRegime!,
-      patternConfidence: signalScore.confidence,
+      patternConfidence: signalScoreBreakdown.confidence,
       riskRewardRatio,
       expectedHoldTime,
       entryTiming,
