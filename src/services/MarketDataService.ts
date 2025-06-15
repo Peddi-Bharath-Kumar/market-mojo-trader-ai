@@ -167,44 +167,27 @@ class MarketDataService {
 
   private async connectAngelBroking() {
     try {
-      console.log('🔗 Authenticating with Angel Broking for REAL market data...');
+      console.log('🔗 Setting up Angel Broking for REAL market data...');
       
-      const authResponse = await fetch('https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-UserType': 'USER',
-          'X-SourceID': 'WEB',
-          'X-ClientLocalIP': '192.168.1.1',
-          'X-ClientPublicIP': '106.193.147.98',
-          'X-MACAddress': 'fe80::216:3eff:fe1d:e1d1',
-          'X-PrivateKey': this.apiConfig!.apiKey
-        },
-        body: JSON.stringify({
-          clientcode: this.apiConfig!.apiSecret,
-          password: this.apiConfig!.accessToken || '8877'
-        })
-      });
-
-      if (authResponse.ok) {
-        const authData = await authResponse.json();
-        if (authData.status && authData.data) {
-          this.authToken = authData.data.jwtToken;
-          console.log('✅ Angel Broking REAL market data authenticated');
-          
-          await this.startRealTimePriceFeed();
-          this.dataMode = 'live'; // We are live if this worked
-          return;
-        }
+      // Authentication is now handled in APIConfiguration.tsx before calling connect.
+      // We should already have the access token (jwtToken).
+      if (!this.apiConfig?.accessToken) {
+        throw new Error('Angel Broking access token not available. Please authenticate first in the Config tab.');
       }
       
-      throw new Error('Angel Broking market data authentication failed');
+      this.authToken = this.apiConfig.accessToken;
+      console.log('✅ Angel Broking REAL market data token has been set.');
       
-    } catch (error) {
-      console.error('❌ Angel Broking REAL market data failed:', error);
+      await this.startRealTimePriceFeed();
+      this.dataMode = 'live'; // We are live if this worked
+      return;
+      
+    } catch (error: any) {
+      console.error('❌ Angel Broking REAL market data connection failed:', error);
       this.simulateRealTimeDataWithCurrentPrices();
       this.dataMode = 'simulated';
+      // Re-throw the error to be caught by the caller in MarketDataPanel
+      throw error;
     }
   }
 
