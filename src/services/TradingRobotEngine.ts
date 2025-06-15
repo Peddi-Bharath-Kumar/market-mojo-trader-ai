@@ -386,7 +386,7 @@ export class TradingRobotEngine {
 
       // Intraday Strategy
       if (this.config.intradayEnabled) {
-        const intradaySignal = this.intradayStrategy(symbol);
+        const intradaySignal = await this.intradayStrategy(symbol);
         if (intradaySignal) {
           const isPlaced = await this.executeSignal(intradaySignal);
           if (isPlaced) {
@@ -461,41 +461,64 @@ export class TradingRobotEngine {
     }
   }
 
-  private intradayStrategy(symbol: string): TradingSignal | null {
+  private async intradayStrategy(symbol: string): Promise<TradingSignal | null> {
     if (!this.marketCondition) return null;
-
-    const { trend, volatility, volume } = this.marketCondition;
-
-    if (trend === 'bullish' && volume === 'high' && this.positionManager.getPositionCount() < this.config.maxPositions) {
-      return {
-        symbol,
-        action: 'buy',
-        orderType: 'limit',
-        quantity: this.calculatePositionSize(symbol),
-        price: 19800,
-        confidence: 0.75,
-        reason: 'Bullish trend with high volume - momentum play',
-        strategy: 'Intraday Momentum',
-        stopLoss: this.calculateStopLoss(symbol, 'buy'),
-        target: this.calculateTarget(symbol, 'buy')
-      };
+  
+    try {
+      const priceData = await marketDataService.getRealTimePrice(symbol);
+      if (!priceData || !priceData.ltp) {
+        console.warn(`Could not get price for ${symbol}, skipping strategy.`);
+        return null;
+      }
+      const currentPrice = priceData.ltp;
+  
+      const { trend, volume } = this.marketCondition;
+  
+      if (trend === 'bullish' && volume === 'high' && this.positionManager.getPositionCount() < this.config.maxPositions) {
+        const stopLoss = this.calculateStopLoss(symbol, currentPrice, 'buy');
+        const target = this.calculateTarget(symbol, currentPrice, stopLoss, 'buy');
+        const quantity = this.calculatePositionSize(currentPrice, stopLoss);
+        
+        if (quantity <= 0) return null;
+  
+        return {
+          symbol,
+          action: 'buy',
+          orderType: 'limit',
+          quantity,
+          price: currentPrice,
+          confidence: 0.75,
+          reason: `Bullish trend, high volume, ATR-based risk. SL: ${stopLoss.toFixed(2)}`,
+          strategy: 'Intraday Momentum',
+          stopLoss,
+          target,
+        };
+      }
+  
+      if (trend === 'bearish' && this.marketCondition.volatility === 'high') {
+        const stopLoss = this.calculateStopLoss(symbol, currentPrice, 'sell');
+        const target = this.calculateTarget(symbol, currentPrice, stopLoss, 'sell');
+        const quantity = this.calculatePositionSize(currentPrice, stopLoss);
+        
+        if (quantity <= 0) return null;
+  
+        return {
+          symbol,
+          action: 'sell',
+          orderType: 'limit',
+          quantity,
+          price: currentPrice,
+          confidence: 0.70,
+          reason: `Bearish trend, high volatility, ATR-based risk. SL: ${stopLoss.toFixed(2)}`,
+          strategy: 'Intraday Short',
+          stopLoss,
+          target,
+        };
+      }
+    } catch (error) {
+      console.error(`Error in intraday strategy for ${symbol}:`, error);
     }
-
-    if (trend === 'bearish' && volatility === 'high') {
-      return {
-        symbol,
-        action: 'sell',
-        orderType: 'limit',
-        quantity: this.calculatePositionSize(symbol),
-        price: 19800,
-        confidence: 0.70,
-        reason: 'Bearish trend with high volatility - short opportunity',
-        strategy: 'Intraday Short',
-        stopLoss: this.calculateStopLoss(symbol, 'sell'),
-        target: this.calculateTarget(symbol, 'sell')
-      };
-    }
-
+  
     return null;
   }
 
@@ -532,35 +555,50 @@ export class TradingRobotEngine {
     return null;
   }
 
-  private calculatePositionSize(symbol: string): number {
-    const accountBalance = 100000;
-    const riskAmount = accountBalance * (this.config.riskPerTrade / 100);
-    const stopLossPercentage = 1.5;
-    
-    if (symbol === 'NIFTY50' || symbol === 'BANKNIFTY') return 1;
-    return Math.floor(riskAmount / (19800 * stopLossPercentage / 100));
+  private calculatePositionSize(price: number, stopLossPrice: number): number {
+    const capital = this.dailyTradingStats.currentCapital;
+    const riskAmount = capital * (this.config.riskPerTrade / 100);
+    const riskPerShare = Math.abs(price - stopLossPrice);
+
+    if (riskPerShare === 0) return 0;
+
+    const size = Math.floor(riskAmount / riskPerShare);
+    // For indices like NIFTY, size is in lots, not shares. This logic needs refinement for real trading.
+    return size > 0 ? size : 0;
   }
 
-  private calculateStopLoss(symbol: string, action: 'buy' | 'sell'): number {
-    const currentPrice = 19800;
-    const stopLossPercentage = 1.5;
+  private calculateStopLoss(symbol: string, price: number, action: 'buy' | 'sell'): number {
+    const atr = this.getSymbolATR(symbol);
+    const stopLossDistance = atr * 2; // Common practice: 2x ATR for stop
     
     if (action === 'buy') {
-      return currentPrice * (1 - stopLossPercentage / 100);
+      return price - stopLossDistance;
     } else {
-      return currentPrice * (1 + stopLossPercentage / 100);
+      return price + stopLossDistance;
     }
   }
 
-  private calculateTarget(symbol: string, action: 'buy' | 'sell'): number {
-    const currentPrice = 19800;
-    const targetPercentage = 4.0;
+  private calculateTarget(symbol: string, price: number, stopLoss: number, action: 'buy' | 'sell'): number {
+    const riskDistance = Math.abs(price - stopLoss);
+    const targetDistance = riskDistance * 1.5; // Aim for 1:1.5 Risk-to-Reward
     
     if (action === 'buy') {
-      return currentPrice * (1 + targetPercentage / 100);
+      return price + targetDistance;
     } else {
-      return currentPrice * (1 - targetPercentage / 100);
+      return price - targetDistance;
     }
+  }
+
+  private getSymbolATR(symbol: string): number {
+    // This is a MOCK. In a real system, this would come from a data provider.
+    // ATR values are absolute price movements.
+    const atrMap: { [key: string]: number } = {
+      'NIFTY50': 120.5, 'BANKNIFTY': 350.0,
+      'RELIANCE': 45.8, 'TCS': 55.2, 'INFY': 30.1,
+      'HDFC': 40.5, 'ICICI': 25.3, 'SBI': 15.7
+    };
+    // Return a default ATR if symbol not found, representing an average stock
+    return atrMap[symbol] || 50.0;
   }
 
   public getRobotStatus() {
