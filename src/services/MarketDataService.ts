@@ -1,4 +1,3 @@
-
 interface MarketTick {
   symbol: string;
   price: number;
@@ -58,10 +57,12 @@ class MarketDataService {
   private positions: Position[] = [];
   private realTimeMarketData = new Map<string, MarketTick>();
   private priceUpdateCallbacks = new Map<string, ((price: any) => void)[]>();
+  private dataMode: 'live' | 'simulated' = 'simulated';
 
   setApiConfig(config: BrokerConfig) {
     this.apiConfig = config;
     this.isRealDataMode = true;
+    this.dataMode = 'simulated';
     console.log('📊 Market Data API Config set for:', config.broker);
     console.log('🔴 Real-time market data mode enabled');
     
@@ -78,6 +79,7 @@ class MarketDataService {
     if (!this.apiConfig) {
       console.warn('No API config - using LIVE price simulation');
       this.simulateRealTimeDataWithCurrentPrices();
+      this.dataMode = 'simulated';
       return;
     }
 
@@ -91,11 +93,12 @@ class MarketDataService {
       } else {
         console.warn('Unknown broker, using enhanced LIVE simulation');
         this.simulateRealTimeDataWithCurrentPrices();
+        this.dataMode = 'simulated';
       }
     } catch (error) {
       console.error('Failed to connect to real market data:', error);
-      console.log('🔄 Using LIVE price simulation...');
       this.simulateRealTimeDataWithCurrentPrices();
+      this.dataMode = 'simulated';
     }
   }
 
@@ -191,6 +194,7 @@ class MarketDataService {
           console.log('✅ Angel Broking REAL market data authenticated');
           
           await this.startRealTimePriceFeed();
+          this.dataMode = 'live'; // We are live if this worked
           return;
         }
       }
@@ -200,6 +204,7 @@ class MarketDataService {
     } catch (error) {
       console.error('❌ Angel Broking REAL market data failed:', error);
       this.simulateRealTimeDataWithCurrentPrices();
+      this.dataMode = 'simulated';
     }
   }
 
@@ -208,11 +213,13 @@ class MarketDataService {
       console.log('🔗 Connecting to Zerodha Kite Connect for REAL market data...');
       
       await this.startZerodhaRealTimeFeed();
+      this.dataMode = 'live';
       console.log('✅ Zerodha Kite Connect REAL market data connected');
       
     } catch (error) {
       console.error('❌ Zerodha Kite Connect REAL market data failed:', error);
       this.simulateRealTimeDataWithCurrentPrices();
+      this.dataMode = 'simulated';
     }
   }
 
@@ -624,6 +631,10 @@ class MarketDataService {
   // Method for AI to get real-time data
   async getSymbolData(symbol: string): Promise<any> {
     return await this.getRealTimePrice(symbol);
+  }
+
+  getCurrentDataMode(): 'live' | 'simulated' {
+    return this.dataMode;
   }
 }
 

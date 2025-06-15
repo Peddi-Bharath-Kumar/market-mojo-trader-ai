@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,6 +25,7 @@ const TradingDashboard = () => {
   const [currentProfit, setCurrentProfit] = useState(0);
   const [dailyTarget] = useState(2); // 2% daily target
   const [brokerConnected, setBrokerConnected] = useState(false);
+  const [dataMode, setDataMode] = useState<'live' | 'simulated'>('simulated');
   const { toast } = useToast();
 
   // Check for saved credentials and restore connection state
@@ -57,6 +57,13 @@ const TradingDashboard = () => {
           
           // Start real-time account updates
           brokerAccountService.startRealTimeUpdates();
+          
+          // After restoring credentials, connect market data and set mode badge
+          const updateMode = () => setDataMode(marketDataService.getCurrentDataMode());
+          marketDataService.connect().then(updateMode).catch(updateMode);
+          // Keep up to date if it changes
+          const interval = setInterval(updateMode, 15000);
+          return () => clearInterval(interval);
         }
       } catch (error) {
         console.error('❌ Failed to restore dashboard state:', error);
@@ -153,6 +160,9 @@ const TradingDashboard = () => {
                   <span className="text-sm">Virtual</span>
                   <div className={`h-3 w-3 rounded-full ${brokerConnected ? 'bg-yellow-500' : 'bg-gray-400'}`}></div>
                   <span className="text-sm">Broker</span>
+                  {/* Add badge or dot for Data Mode */}
+                  <div className={`h-3 w-3 rounded-full ${dataMode === 'live' ? 'bg-green-700' : 'bg-gray-500'}`}></div>
+                  <span className="text-sm">{dataMode === 'live' ? 'Live Data' : 'Simulated Data'}</span>
                 </div>
               </div>
             </CardTitle>

@@ -46,6 +46,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
   const [showTotp, setShowTotp] = useState(false);
   const [showTotpKey, setShowTotpKey] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [portfolioAccessInfo, setPortfolioAccessInfo] = useState<'full' | 'balance-only' | 'none'>('none');
   
   const { toast } = useToast();
 
@@ -79,6 +80,21 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
       }
     }
   }, [onConfigured]);
+
+  useEffect(() => {
+    if (isConfigured && brokerAccountService.getCurrentAccount()) {
+      const acc = brokerAccountService.getCurrentAccount();
+      if (acc?.hasPortfolioDataAccess) {
+        setPortfolioAccessInfo('full');
+      } else if (acc && !acc.hasPortfolioDataAccess) {
+        setPortfolioAccessInfo('balance-only');
+      } else {
+        setPortfolioAccessInfo('none');
+      }
+    } else {
+      setPortfolioAccessInfo('none');
+    }
+  }, [isConfigured]);
 
   const saveCredentials = (credentials: any) => {
     localStorage.setItem('trading-credentials', JSON.stringify(credentials));
@@ -272,6 +288,25 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                 {connectionStatus === 'connected' && (
                   <div className="text-sm text-green-600">
                     Broker: {broker.toUpperCase()} | Client: {clientId}
+                  </div>
+                )}
+                {connectionStatus === 'connected' && (
+                  <div className="mt-1">
+                    {portfolioAccessInfo === 'full' && (
+                      <span className="inline-flex items-center gap-1 text-green-800 bg-green-100 px-2 rounded text-xs font-semibold">
+                        Portfolio Access: <span className="font-bold">FULL</span>
+                      </span>
+                    )}
+                    {portfolioAccessInfo === 'balance-only' && (
+                      <span className="inline-flex items-center gap-1 text-yellow-800 bg-yellow-100 px-2 rounded text-xs font-semibold">
+                        Portfolio Access: <span className="font-bold">BALANCE ONLY</span>
+                      </span>
+                    )}
+                    {portfolioAccessInfo === 'none' && (
+                      <span className="inline-flex items-center gap-1 text-gray-600 bg-gray-100 px-2 rounded text-xs font-semibold">
+                        Portfolio Access: Unknown
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
