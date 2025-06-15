@@ -307,8 +307,11 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                           type={showSecrets ? 'text' : 'password'}
                           value={totpKey}
                           onChange={(e) => setTotpKey(e.target.value)}
-                          placeholder="Your TOTP secret key"
+                          placeholder="Base32 encoded TOTP secret"
                         />
+                        <div className="text-xs text-gray-500 mt-1">
+                          Should be a long base32 string (e.g., JBSWY3DPEHPK3PXP...)
+                        </div>
                       </div>
                     </div>
                   </TabsContent>
@@ -462,12 +465,20 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                     <div>• <strong>API Key:</strong> Get from Angel SmartAPI portal</div>
                     <div>• <strong>Client ID:</strong> Your Angel trading account ID (e.g., A12345)</div>
                     <div>• <strong>Password:</strong> Your Angel login password</div>
-                    <div>• <strong>TOTP Key:</strong> Required for secure authentication</div>
+                    <div>• <strong>TOTP Key:</strong> Base32 encoded secret from SmartAPI portal</div>
                   </div>
                   
                   <div className="mt-3 p-3 bg-blue-100 rounded text-xs">
-                    <strong>TOTP Key Location:</strong> You can find your TOTP Key in the Angel SmartAPI portal under API settings. 
-                    It's typically a long string that's used to generate time-based authentication codes.
+                    <strong>TOTP Key Format:</strong> The TOTP Key should be a base32 encoded string (looks like: JBSWY3DPEHPK3PXP...). 
+                    You can find this in your Angel SmartAPI portal under API settings. Make sure to copy the exact string without spaces.
+                  </div>
+                  
+                  <div className="mt-2 p-3 bg-yellow-100 rounded text-xs">
+                    <strong>Troubleshooting "Invalid TOTP":</strong>
+                    <div>1. Verify your TOTP Key is exactly as shown in Angel portal</div>
+                    <div>2. Ensure your system time is synchronized</div>
+                    <div>3. Try waiting for the next 30-second window</div>
+                    <div>4. Check if TOTP is enabled for your Angel account</div>
                   </div>
                 </div>
               </CardContent>
