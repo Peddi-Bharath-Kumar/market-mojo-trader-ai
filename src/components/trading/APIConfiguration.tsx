@@ -22,7 +22,6 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
   const [userId, setUserId] = useState('');
   const [pin, setPin] = useState('');
   const [totp, setTotp] = useState('');
-  const [totpKey, setTotpKey] = useState('');
   const [requestToken, setRequestToken] = useState('');
   const [authMethod, setAuthMethod] = useState<'password' | 'session'>('password');
   const [sessionToken, setSessionToken] = useState('');
@@ -43,7 +42,6 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
         setAccessToken(credentials.accessToken || '');
         setUserId(credentials.userId || '');
         setPin(credentials.pin || '');
-        setTotpKey(credentials.totpKey || '');
         setRequestToken(credentials.requestToken || '');
         setAuthMethod(credentials.authMethod || 'password');
         setSessionToken(credentials.sessionToken || '');
@@ -142,10 +140,8 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
       
       const storableCredentials = {
         ...serviceCredentials,
-        broker: broker as string,
+        broker: broker as 'angel' | 'zerodha',
         pin: broker === 'angel' ? pin : '',
-        totp: '', // Do not store TOTP
-        totpKey: broker === 'angel' ? totpKey : '',
         requestToken: broker === 'zerodha' ? requestToken : '',
         authMethod: broker === 'angel' ? authMethod : '',
         sessionToken: broker === 'angel' ? finalAccessToken : '', // Store the new session token
@@ -181,7 +177,6 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
     setUserId('');
     setPin('');
     setTotp('');
-    setTotpKey('');
     setRequestToken('');
     setAuthMethod('password');
     setSessionToken('');
