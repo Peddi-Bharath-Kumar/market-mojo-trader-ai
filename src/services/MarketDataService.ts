@@ -1,3 +1,4 @@
+
 interface MarketTick {
   symbol: string;
   price: number;
@@ -135,6 +136,16 @@ class MarketDataService {
     }
   }
 
+  private async connectZerodha() {
+    console.log('🔗 Zerodha connection not implemented yet, using simulation...');
+    this.simulateRealTimeData();
+  }
+
+  private async connectUpstox() {
+    console.log('🔗 Upstox connection not implemented yet, using simulation...');
+    this.simulateRealTimeData();
+  }
+
   private async fetchCurrentMarketPrices() {
     console.log('📈 Fetching current market prices from Angel Broking...');
     
@@ -199,6 +210,16 @@ class MarketDataService {
       ltp: currentPrice,
       timestamp: Date.now()
     };
+  }
+
+  private isMarketOpen(date: Date): boolean {
+    const day = date.getDay();
+    const hour = date.getHours();
+    const minute = date.getMinutes();
+    const currentTime = hour * 60 + minute;
+    
+    // Monday to Friday, 9:15 AM to 3:30 PM IST
+    return day >= 1 && day <= 5 && currentTime >= 555 && currentTime <= 930;
   }
 
   private simulateRealTimeData() {
@@ -304,6 +325,36 @@ class MarketDataService {
     }
   }
 
+  // Public methods for subscription management
+  subscribe(symbol: string, callback: (data: MarketTick) => void) {
+    if (!this.listeners.has(symbol)) {
+      this.listeners.set(symbol, []);
+    }
+    this.listeners.get(symbol)!.push(callback);
+    this.subscriptions.add(symbol);
+    console.log(`Subscribed to ${symbol}`);
+  }
+
+  unsubscribe(symbol: string, callback?: (data: MarketTick) => void) {
+    if (callback) {
+      const callbacks = this.listeners.get(symbol);
+      if (callbacks) {
+        const index = callbacks.indexOf(callback);
+        if (index > -1) {
+          callbacks.splice(index, 1);
+        }
+        if (callbacks.length === 0) {
+          this.listeners.delete(symbol);
+          this.subscriptions.delete(symbol);
+        }
+      }
+    } else {
+      this.listeners.delete(symbol);
+      this.subscriptions.delete(symbol);
+    }
+    console.log(`Unsubscribed from ${symbol}`);
+  }
+
   async getOptionChain(symbol: string, expiry: string): Promise<OptionChain[]> {
     if (this.isRealDataMode && this.apiConfig) {
       try {
@@ -341,6 +392,25 @@ class MarketDataService {
     }
     
     return Promise.resolve(strikes);
+  }
+
+  private getBasePriceForSymbol(symbol: string): number {
+    const basePrices: { [key: string]: number } = {
+      'NIFTY50': 24350,
+      'NIFTY': 24350,
+      'BANKNIFTY': 55420,
+      'RELIANCE': 2920,
+      'TCS': 4150,
+      'HDFC': 1720,
+      'INFY': 1875,
+      'ITC': 465,
+      'ICICIBANK': 1045,
+      'SBIN': 715,
+      'BHARTIARTL': 1685,
+      'MAZDOCK-EQ': 2350
+    };
+    
+    return basePrices[symbol] || 1000;
   }
 
   getConnectionStatus() {
