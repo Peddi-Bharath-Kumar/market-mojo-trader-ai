@@ -5,8 +5,8 @@ import { marketDataService } from './MarketDataService';
 import { MarketAnalyzer } from './trading/MarketAnalyzer';
 import { RiskManager } from './trading/risk/RiskManager';
 import { generateIntradaySignal } from './trading/strategies/IntradayStrategy';
-import { generateOptionsSignal } from './trading/strategies/OptionsStrategy';
 import { realDataService } from './RealDataService';
+import { optionsGreeksEngine, type OptionsGreeksData } from './OptionsGreeksEngine';
 
 export type { TradingSignal }; // Re-export for legacy dependencies
 
@@ -130,7 +130,11 @@ export class TradingRobotEngine {
       );
       
       if (this.shouldGenerateSignals()) {
-        await this.generateSignals();
+        const signals = await this.generateSignals();
+        if (signals.length > 0) {
+          console.log(`🎯 Generated ${signals.length} new signals. Executing...`);
+          await this.executeSignals(signals);
+        }
       }
     }, 15000); // Check every 15 seconds
   }
@@ -221,35 +225,49 @@ export class TradingRobotEngine {
   public async generateSignals(): Promise<TradingSignal[]> {
     if (!this.marketCondition) return [];
 
-    const signals: TradingSignal[] = [];
-    const symbols = ['NIFTY50', 'BANKNIFTY', 'RELIANCE', 'TCS', 'HDFC', 'INFY'];
+    const allSignals: TradingSignal[] = [];
+    const intradaySymbols = ['RELIANCE', 'TCS', 'HDFC', 'INFY'];
 
-    for (const symbol of symbols) {
-      if (this.positionManager.getPositionCount() >= this.config.maxPositions) break;
-      if (this.positionManager.getPositions().some(p => p.symbol === symbol)) continue;
+    // 1. Generate Intraday Equity Signals
+    if (this.config.intradayEnabled) {
+      for (const symbol of intradaySymbols) {
+        if (this.positionManager.getPositionCount() + allSignals.length >= this.config.maxPositions) break;
+        if (this.positionManager.getPositions().some(p => p.symbol === symbol)) continue;
 
-      if (this.config.intradayEnabled) {
         const intradaySignal = await generateIntradaySignal(symbol, this.marketCondition, this.config, this.dailyTradingStats.currentCapital);
         if (intradaySignal) {
-          const isPlaced = await this.executeSignal(intradaySignal);
-          if (isPlaced) signals.push(intradaySignal);
-        }
-      }
-
-      if (this.config.optionsEnabled) {
-        const optionsSignal = generateOptionsSignal(symbol, this.marketCondition);
-        if (optionsSignal) {
-           const isPlaced = await this.executeSignal(optionsSignal);
-          if (isPlaced) signals.push(optionsSignal);
+          allSignals.push(intradaySignal);
         }
       }
     }
 
-    if (signals.length > 0) {
-      console.log('🎯 Generated Trading Signals:', signals);
+    // 2. Generate Advanced Options Signals
+    if (this.config.optionsEnabled) {
+      const optionsSignals = this._generateOptionsSignals();
+      allSignals.push(...optionsSignals);
+    }
+    
+    if (allSignals.length > 0) {
+      console.log('🔎 Discovered potential signals:', allSignals);
     }
 
-    return signals;
+    // Future: Add ranking and filtering logic here before returning
+    return allSignals;
+  }
+
+  private async executeSignals(signals: TradingSignal[]): Promise<void> {
+    for (const signal of signals) {
+      if (this.positionManager.getPositionCount() >= this.config.maxPositions) {
+        console.log('📋 Max positions reached, skipping further signal execution.');
+        break;
+      }
+      if (this.positionManager.getPositions().some(p => p.symbol === signal.symbol)) {
+        console.log(`💡 Skipping signal for ${signal.symbol}, position already exists.`);
+        continue;
+      }
+
+      await this.executeSignal(signal);
+    }
   }
 
   private async executeSignal(signal: TradingSignal): Promise<boolean> {
@@ -259,6 +277,11 @@ export class TradingRobotEngine {
     }
 
     const { isLiveTrading } = orderExecutionService.getTradingStatus();
+
+    // Determine product type based on strategy
+    let product: 'mis' | 'cnc' | 'nrml' = 'mis'; // Default to intraday
+    if (signal.strategy.includes('Options')) product = 'nrml';
+    if (signal.strategy.includes('Swing')) product = 'cnc';
 
     if (isLiveTrading) {
         console.log(`🔴 Executing LIVE order for ${signal.symbol}`);
@@ -271,7 +294,7 @@ export class TradingRobotEngine {
                 price: signal.price,
                 stopLoss: signal.stopLoss,
                 target: signal.target,
-                product: 'mis', // Assuming intraday
+                product: product,
                 validity: 'day',
             };
             
@@ -297,6 +320,69 @@ export class TradingRobotEngine {
         }
         return false;
     }
+  }
+
+  private _generateOptionsSignals(): TradingSignal[] {
+    const signals: TradingSignal[] = [];
+    const opportunities = optionsGreeksEngine.getTradingOpportunities();
+    
+    opportunities.forEach(option => {
+      if (option.tradingRecommendation !== 'hold') {
+        const signal: TradingSignal = {
+          symbol: option.symbol,
+          action: option.tradingRecommendation.includes('buy') ? 'buy' : 'sell',
+          orderType: 'limit',
+          quantity: this._calculateOptionsQuantity(option),
+          price: option.lastPrice,
+          confidence: this._calculateOptionsConfidence(option),
+          reason: this._generateOptionsReason(option),
+          strategy: 'Enhanced Options Greeks',
+          greeksData: option,
+          riskLevel: option.riskLevel,
+          signalScore: this._scoreOptionsSignal(option)
+        };
+        signals.push(signal);
+      }
+    });
+    
+    return signals;
+  }
+  
+  private _calculateOptionsQuantity(option: OptionsGreeksData): number {
+    const baseQuantity = 1; // This should be based on risk settings
+    const riskMultiplier = { low: 2, medium: 1, high: 0.5, extreme: 0.25 };
+    return Math.max(1, Math.floor(baseQuantity * riskMultiplier[option.riskLevel]));
+  }
+
+  private _calculateOptionsConfidence(option: OptionsGreeksData): number {
+    let confidence = 0.5;
+    if (option.impliedVolatility > 0.35 && option.tradingRecommendation.includes('sell')) confidence += 0.2;
+    if (option.impliedVolatility < 0.15 && option.tradingRecommendation.includes('buy')) confidence += 0.2;
+    if (Math.abs(option.greeks.gamma) > 0.03 && option.timeToExpiry < 0.05) confidence += 0.15;
+    if (option.volume > 2000) confidence += 0.1;
+    if (option.riskLevel === 'low') confidence += 0.05;
+    if (option.riskLevel === 'extreme') confidence -= 0.15;
+    return Math.min(0.95, Math.max(0.3, confidence));
+  }
+
+  private _generateOptionsReason(option: OptionsGreeksData): string {
+    const reasons: string[] = [];
+    if (option.impliedVolatility > 0.35) reasons.push(`High IV (${(option.impliedVolatility * 100).toFixed(1)}%)`);
+    if (option.impliedVolatility < 0.15) reasons.push(`Low IV (${(option.impliedVolatility * 100).toFixed(1)}%)`);
+    if (Math.abs(option.greeks.gamma) > 0.03) reasons.push(`High gamma`);
+    if (option.greeks.theta < -15) reasons.push('High time decay');
+    const baseReason = option.tradingRecommendation.includes('buy') ? 'Options buying opportunity' : 'Options selling opportunity';
+    return `${baseReason}: ${reasons.join(', ')}`;
+  }
+  
+  private _scoreOptionsSignal(option: OptionsGreeksData): number {
+    let score = 50;
+    if (option.impliedVolatility > 0.4) score += 15;
+    if (Math.abs(option.greeks.delta) > 0.5) score += 10;
+    if (option.greeks.theta < -20) score += 5;
+    if (option.riskLevel === 'low') score += 10;
+    else if (option.riskLevel === 'extreme') score -= 20;
+    return Math.min(100, Math.max(0, score));
   }
 
   public getRobotStatus() {

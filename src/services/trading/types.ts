@@ -1,3 +1,4 @@
+import type { OptionsGreeksData } from '../OptionsGreeksEngine';
 
 export interface TradingSignal {
   symbol: string;
@@ -10,6 +11,10 @@ export interface TradingSignal {
   confidence: number;
   reason: string;
   strategy: string;
+  // --- Merged from IntegratedTradingEngine for advanced strategies ---
+  greeksData?: OptionsGreeksData;
+  riskLevel?: 'low' | 'medium' | 'high' | 'extreme';
+  signalScore?: number;
 }
 
 export interface MarketCondition {
