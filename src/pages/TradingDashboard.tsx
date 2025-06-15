@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,6 +16,7 @@ import { VirtualTradingMode } from '@/components/trading/VirtualTradingMode';
 import { OptionsGreeksPanel } from '@/components/trading/OptionsGreeksPanel';
 import { useToast } from '@/hooks/use-toast';
 import { marketDataService } from '@/services/MarketDataService';
+import { brokerAccountService } from '@/services/BrokerAccountService';
 import { TradingRobotDashboard } from '@/components/trading/TradingRobotDashboard';
 
 const TradingDashboard = () => {
@@ -23,19 +25,53 @@ const TradingDashboard = () => {
   const [apiConfigured, setApiConfigured] = useState(false);
   const [currentProfit, setCurrentProfit] = useState(0);
   const [dailyTarget] = useState(2); // 2% daily target
+  const [brokerConnected, setBrokerConnected] = useState(false);
   const { toast } = useToast();
 
-  // Set API config when configured
+  // Check for saved credentials and restore connection state
   useEffect(() => {
-    if (apiConfigured) {
-      // This would normally be set from the API configuration
-      marketDataService.setApiConfig({
-        broker: 'zerodha', // This should come from actual config
-        apiKey: 'configured',
-        apiSecret: 'configured'
+    console.log('🔄 TradingDashboard: Checking for persistent credentials...');
+    const savedCredentials = localStorage.getItem('trading-credentials');
+    if (savedCredentials) {
+      try {
+        const credentials = JSON.parse(savedCredentials);
+        if (credentials.isAuthenticated) {
+          console.log('✅ Found authenticated credentials, restoring dashboard state...');
+          setApiConfigured(true);
+          setBrokerConnected(true);
+          
+          // Restore broker account service
+          brokerAccountService.setCredentials(credentials);
+          
+          // Restore market data service
+          marketDataService.setApiConfig({
+            broker: credentials.broker,
+            apiKey: credentials.apiKey,
+            apiSecret: credentials.broker === 'angel' ? credentials.clientId : credentials.apiSecret,
+            accessToken: credentials.broker === 'angel' ? 
+              (credentials.authMethod === 'session' ? credentials.sessionToken : credentials.password) : 
+              credentials.accessToken
+          });
+          
+          console.log('🔗 Dashboard state restored with real broker connection');
+          
+          // Start real-time account updates
+          brokerAccountService.startRealTimeUpdates();
+        }
+      } catch (error) {
+        console.error('❌ Failed to restore dashboard state:', error);
+      }
+    }
+  }, []);
+
+  // Monitor broker account for P&L updates
+  useEffect(() => {
+    if (brokerConnected) {
+      brokerAccountService.subscribe((account) => {
+        setCurrentProfit(account.dayPnLPercent);
       });
     }
-  }, [apiConfigured]);
+  }, [brokerConnected]);
 
   const handleStartTrading = () => {
     if (!apiConfigured) {
@@ -72,6 +108,16 @@ const TradingDashboard = () => {
     });
   };
 
+  const handleConfigurationChange = (configured: boolean) => {
+    setApiConfigured(configured);
+    setBrokerConnected(configured);
+    
+    if (configured) {
+      console.log('✅ API configured, starting real-time updates...');
+      brokerAccountService.startRealTimeUpdates();
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <div className="max-w-7xl mx-auto">
@@ -105,6 +151,8 @@ const TradingDashboard = () => {
                   <span className="text-sm">Live</span>
                   <div className={`h-3 w-3 rounded-full ${isVirtualTrading ? 'bg-blue-500' : 'bg-gray-400'}`}></div>
                   <span className="text-sm">Virtual</span>
+                  <div className={`h-3 w-3 rounded-full ${brokerConnected ? 'bg-yellow-500' : 'bg-gray-400'}`}></div>
+                  <span className="text-sm">Broker</span>
                 </div>
               </div>
             </CardTitle>
@@ -139,6 +187,11 @@ const TradingDashboard = () => {
                 Emergency Stop
               </Button>
             </div>
+            {brokerConnected && (
+              <div className="mt-3 text-sm text-green-700 bg-green-50 p-2 rounded">
+                ✅ Real broker connection active - All data is persistent across tabs
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -205,7 +258,7 @@ const TradingDashboard = () => {
 
           <TabsContent value="config">
             <APIConfiguration 
-              onConfigured={setApiConfigured} 
+              onConfigured={handleConfigurationChange} 
               isConfigured={apiConfigured}
             />
           </TabsContent>
