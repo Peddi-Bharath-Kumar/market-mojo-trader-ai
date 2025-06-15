@@ -11,6 +11,7 @@ export class BrokerAuthService {
     console.log('🔐 Testing REAL Angel Broking authentication...');
     
     try {
+      // Step 1: Generate session using the correct Angel Broking API
       const authResponse = await fetch('https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword', {
         method: 'POST',
         headers: {
@@ -29,8 +30,22 @@ export class BrokerAuthService {
         })
       });
 
+      if (!authResponse.ok) {
+        throw new Error(`HTTP ${authResponse.status}: ${authResponse.statusText}`);
+      }
+
       const authData = await authResponse.json();
       console.log('🔐 Angel Broking auth response:', authData);
+
+      // Handle the TOTP error specifically
+      if (authData.errorcode === 'AB1050' || authData.message === 'Invalid totp') {
+        return {
+          success: false,
+          error: 'Angel Broking requires TOTP (Two-Factor Authentication). Please:\n1. Enable API access in your Angel account\n2. Generate an API session token\n3. Use session-based authentication instead of password\n\nAlternatively, try using session token method or contact Angel support to disable TOTP for API access.',
+          broker: 'angel',
+          realConnection: true
+        };
+      }
 
       if (authData.status === true && authData.data?.jwtToken) {
         console.log('✅ Angel Broking authentication successful');
@@ -53,6 +68,55 @@ export class BrokerAuthService {
       return {
         success: false,
         error: `Network error: ${error instanceof Error ? error.message : 'Connection failed'}`,
+        broker: 'angel',
+        realConnection: false
+      };
+    }
+  }
+
+  // Alternative method for Angel Broking using session token
+  static async testAngelBrokingWithSession(apiKey: string, clientId: string, sessionToken: string): Promise<AuthTestResult> {
+    console.log('🔐 Testing Angel Broking with session token...');
+    
+    try {
+      // Test the profile API with session token
+      const profileResponse = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/user/v1/getProfile', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${sessionToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-UserType': 'USER',
+          'X-SourceID': 'WEB',
+          'X-ClientLocalIP': '192.168.1.1',
+          'X-ClientPublicIP': '106.193.147.98',
+          'X-MACAddress': 'fe80::216:3eff:fe1d:e1d1',
+          'X-PrivateKey': apiKey
+        }
+      });
+
+      const profileData = await profileResponse.json();
+      console.log('🔐 Angel profile response:', profileData);
+
+      if (profileData.status === true) {
+        return {
+          success: true,
+          broker: 'angel',
+          realConnection: true
+        };
+      } else {
+        return {
+          success: false,
+          error: profileData.message || 'Session token authentication failed',
+          broker: 'angel',
+          realConnection: true
+        };
+      }
+    } catch (error) {
+      console.error('❌ Angel session token test failed:', error);
+      return {
+        success: false,
+        error: `Session token error: ${error instanceof Error ? error.message : 'Connection failed'}`,
         broker: 'angel',
         realConnection: false
       };
