@@ -4,11 +4,10 @@ interface AuthTestResult {
   error?: string;
   broker: string;
   realConnection: boolean;
-  requiresTOTP?: boolean;
 }
 
 export class BrokerAuthService {
-  static async testAngelBrokingAuth(apiKey: string, apiSecret: string, clientId?: string, totp?: string): Promise<AuthTestResult> {
+  static async testAngelBrokingAuth(apiKey: string, clientId: string, mpin: string): Promise<AuthTestResult> {
     console.log('🔐 Testing REAL Angel Broking authentication...');
     
     try {
@@ -25,9 +24,8 @@ export class BrokerAuthService {
           'X-PrivateKey': apiKey
         },
         body: JSON.stringify({
-          clientcode: clientId || apiKey,
-          password: apiSecret,
-          totp: totp || "" // Include TOTP field
+          clientcode: clientId,
+          password: mpin
         })
       });
 
@@ -41,20 +39,11 @@ export class BrokerAuthService {
           broker: 'angel',
           realConnection: true
         };
-      } else if (authData.errorcode === 'AB1050' || authData.message?.includes('totp')) {
-        console.log('🔑 Angel Broking requires TOTP authentication');
-        return {
-          success: false,
-          error: 'TOTP (6-digit code from authenticator app) is required for Angel Broking authentication',
-          broker: 'angel',
-          realConnection: true,
-          requiresTOTP: true
-        };
       } else {
         console.log('❌ Angel Broking authentication failed:', authData.message);
         return {
           success: false,
-          error: authData.message || 'Authentication failed - check your credentials',
+          error: authData.message || 'Authentication failed - check your API Key, Client ID, and MPIN',
           broker: 'angel',
           realConnection: true
         };
@@ -83,7 +72,6 @@ export class BrokerAuthService {
     }
 
     try {
-      // Test with a simple API call that requires authentication
       const response = await fetch('https://api.kite.trade/user/profile', {
         headers: {
           'Authorization': `token ${apiKey}:${accessToken}`,
@@ -123,16 +111,14 @@ export class BrokerAuthService {
   static async testBrokerCredentials(
     broker: string, 
     apiKey: string, 
-    apiSecret: string, 
-    accessToken?: string, 
-    clientId?: string,
-    totp?: string
+    clientIdOrSecret: string, 
+    mpinOrAccessToken: string
   ): Promise<AuthTestResult> {
     switch (broker) {
       case 'angel':
-        return await this.testAngelBrokingAuth(apiKey, apiSecret, clientId, totp);
+        return await this.testAngelBrokingAuth(apiKey, clientIdOrSecret, mpinOrAccessToken);
       case 'zerodha':
-        return await this.testZerodhaAuth(apiKey, apiSecret, accessToken);
+        return await this.testZerodhaAuth(apiKey, clientIdOrSecret, mpinOrAccessToken);
       default:
         return {
           success: false,

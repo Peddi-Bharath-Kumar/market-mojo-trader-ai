@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -22,15 +23,14 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
     accessToken: ''
   });
   
-  const [clientId, setClientId] = useState(''); // For Angel Broking
-  const [totp, setTotp] = useState(''); // For Angel Broking TOTP
+  const [clientId, setClientId] = useState(''); // For Angel Broking Client ID
+  const [mpin, setMpin] = useState(''); // For Angel Broking MPIN
   const [showSecrets, setShowSecrets] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connected' | 'error'>('disconnected');
   const [lastConnectionTest, setLastConnectionTest] = useState<Date | null>(null);
   const [connectionError, setConnectionError] = useState<string>('');
   const [isRealConnection, setIsRealConnection] = useState(false);
-  const [requiresTOTP, setRequiresTOTP] = useState(false);
 
   const brokers = [
     { 
@@ -57,15 +57,27 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
   ];
 
   const testConnection = async () => {
-    if (!config.broker || !config.apiKey || !config.apiSecret) {
-      alert('Please select a broker and enter all required credentials');
+    if (!config.broker) {
+      alert('Please select a broker');
       return;
     }
 
-    // For Angel Broking, check if TOTP is required but not provided
-    if (config.broker === 'angel' && requiresTOTP && !totp) {
-      alert('Please enter the 6-digit TOTP code from your authenticator app');
-      return;
+    // Validate required fields based on broker
+    if (config.broker === 'angel') {
+      if (!config.apiKey || !clientId || !mpin) {
+        alert('Please enter API Key, Client ID, and MPIN for Angel Broking');
+        return;
+      }
+    } else if (config.broker === 'zerodha') {
+      if (!config.apiKey || !config.apiSecret || !config.accessToken) {
+        alert('Please enter API Key, API Secret, and Access Token for Zerodha');
+        return;
+      }
+    } else {
+      if (!config.apiKey || !config.apiSecret) {
+        alert('Please enter all required credentials');
+        return;
+      }
     }
 
     setIsConnecting(true);
@@ -80,10 +92,8 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
       const testResult = await BrokerAuthService.testBrokerCredentials(
         config.broker,
         config.apiKey,
-        config.apiSecret,
-        config.accessToken,
-        clientId,
-        totp
+        config.broker === 'angel' ? clientId : config.apiSecret,
+        config.broker === 'angel' ? mpin : config.accessToken || ''
       );
       
       console.log('🔐 Authentication test result:', testResult);
@@ -91,12 +101,15 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
       if (testResult.success) {
         setConnectionStatus('connected');
         setIsRealConnection(testResult.realConnection);
-        setRequiresTOTP(false);
         onConfigured(true);
         setLastConnectionTest(new Date());
         
-        // Only set the config if authentication was successful
-        marketDataService.setApiConfig(config);
+        // Set the config for market data service
+        marketDataService.setApiConfig({
+          ...config,
+          apiSecret: config.broker === 'angel' ? clientId : config.apiSecret,
+          accessToken: config.broker === 'angel' ? mpin : config.accessToken
+        });
         
         console.log('✅ REAL API Connection successful!');
         alert(`✅ Successfully authenticated with ${config.broker}!\n\n🔐 Real broker connection established\n📡 Real-time market data is now available`);
@@ -112,15 +125,12 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
         setConnectionStatus('error');
         setConnectionError(testResult.error || 'Authentication failed');
         setIsRealConnection(testResult.realConnection);
-        setRequiresTOTP(testResult.requiresTOTP || false);
         onConfigured(false);
         
         console.error('❌ Authentication failed:', testResult.error);
         
-        if (testResult.requiresTOTP) {
-          alert(`🔑 TOTP Required\n\nAngel Broking requires 2-Factor Authentication.\n\nPlease:\n1. Open your authenticator app (Google Authenticator, etc.)\n2. Find your Angel Broking TOTP code\n3. Enter the 6-digit code below and test again`);
-        } else if (testResult.realConnection) {
-          alert(`❌ Authentication Failed\n\n🔐 Your ${config.broker} credentials are incorrect:\n${testResult.error}\n\nPlease check your API key, secret, and try again.`);
+        if (testResult.realConnection) {
+          alert(`❌ Authentication Failed\n\n🔐 Your ${config.broker} credentials are incorrect:\n${testResult.error}\n\nPlease check your credentials and try again.`);
         } else {
           alert(`❌ Connection Failed\n\n🌐 Cannot reach ${config.broker} API:\n${testResult.error}\n\nPlease check your internet connection.`);
         }
@@ -171,7 +181,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                     <div>• Your credentials are tested against REAL broker APIs</div>
                     <div>• Invalid credentials will be REJECTED by the broker</div>
                     <div>• Only successful authentication enables real data</div>
-                    <div>• Angel Broking requires TOTP (2FA) authentication</div>
+                    <div>• No 2FA/TOTP required for API access</div>
                   </div>
                 </div>
               </div>
@@ -183,8 +193,8 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
             <Label htmlFor="broker">Select Your Broker</Label>
             <Select value={config.broker} onValueChange={(value) => {
               setConfig(prev => ({ ...prev, broker: value }));
-              setRequiresTOTP(false);
-              setTotp('');
+              setClientId('');
+              setMpin('');
             }}>
               <SelectTrigger>
                 <SelectValue placeholder="Choose your broker platform" />
@@ -229,72 +239,63 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                   />
                 </div>
 
-                <div>
-                  <Label htmlFor="apiSecret">
-                    {config.broker === 'angel' ? 'MPIN/Password' : 'API Secret'}
-                  </Label>
-                  <Input
-                    id="apiSecret"
-                    type={showSecrets ? 'text' : 'password'}
-                    value={config.apiSecret}
-                    onChange={(e) => setConfig(prev => ({ ...prev, apiSecret: e.target.value }))}
-                    placeholder={config.broker === 'angel' ? 'Your MPIN' : 'Enter your API secret'}
-                  />
-                </div>
-
-                {config.broker === 'angel' && (
+                {config.broker === 'angel' ? (
                   <>
                     <div>
-                      <Label htmlFor="clientId">Client ID (Optional)</Label>
+                      <Label htmlFor="clientId">Client ID</Label>
                       <Input
                         id="clientId"
                         type="text"
                         value={clientId}
                         onChange={(e) => setClientId(e.target.value)}
-                        placeholder="Your client ID (if different from API key)"
+                        placeholder="Your Angel trading account ID"
                       />
                     </div>
 
                     <div>
-                      <Label htmlFor="totp" className="flex items-center gap-2">
-                        TOTP Code
-                        {requiresTOTP && <Badge variant="destructive" className="text-xs">Required</Badge>}
-                      </Label>
+                      <Label htmlFor="mpin">MPIN</Label>
                       <Input
-                        id="totp"
-                        type="text"
-                        maxLength={6}
-                        value={totp}
-                        onChange={(e) => setTotp(e.target.value.replace(/\D/g, ''))}
-                        placeholder="6-digit code from authenticator app"
-                        className={requiresTOTP ? 'border-red-300 focus:border-red-500' : ''}
+                        id="mpin"
+                        type={showSecrets ? 'text' : 'password'}
+                        value={mpin}
+                        onChange={(e) => setMpin(e.target.value)}
+                        placeholder="Your 4-digit trading PIN"
+                        maxLength={4}
                       />
-                      {requiresTOTP && (
-                        <p className="text-xs text-red-600 mt-1">
-                          Angel Broking requires 2FA. Enter the 6-digit TOTP code from your authenticator app.
-                        </p>
-                      )}
                     </div>
                   </>
-                )}
+                ) : (
+                  <>
+                    <div>
+                      <Label htmlFor="apiSecret">API Secret</Label>
+                      <Input
+                        id="apiSecret"
+                        type={showSecrets ? 'text' : 'password'}
+                        value={config.apiSecret}
+                        onChange={(e) => setConfig(prev => ({ ...prev, apiSecret: e.target.value }))}
+                        placeholder="Enter your API secret"
+                      />
+                    </div>
 
-                {config.broker === 'zerodha' && (
-                  <div>
-                    <Label htmlFor="accessToken">Access Token</Label>
-                    <Input
-                      id="accessToken"
-                      type={showSecrets ? 'text' : 'password'}
-                      value={config.accessToken || ''}
-                      onChange={(e) => setConfig(prev => ({ ...prev, accessToken: e.target.value }))}
-                      placeholder="Required for Zerodha"
-                    />
-                  </div>
+                    {config.broker === 'zerodha' && (
+                      <div>
+                        <Label htmlFor="accessToken">Access Token</Label>
+                        <Input
+                          id="accessToken"
+                          type={showSecrets ? 'text' : 'password'}
+                          value={config.accessToken || ''}
+                          onChange={(e) => setConfig(prev => ({ ...prev, accessToken: e.target.value }))}
+                          placeholder="Required for Zerodha"
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
               <Button 
                 onClick={testConnection} 
-                disabled={isConnecting || !config.apiKey || !config.apiSecret}
+                disabled={isConnecting || !config.apiKey}
                 className="w-full"
               >
                 {isConnecting ? (
@@ -344,32 +345,33 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                 </div>
               </div>
             </CardContent>
-          </Card>
+          )}
 
-          {/* Enhanced Test Instructions for Angel Broking */}
+          {/* Angel Broking Instructions */}
+          {config.broker === 'angel' && (
+            <Card className="bg-blue-50 border-blue-200">
+              <CardContent className="p-4">
+                <h4 className="font-medium text-blue-800 mb-3">📘 Angel Broking Setup</h4>
+                <div className="text-sm text-blue-700 space-y-2">
+                  <div><strong>API Key:</strong> Get from Angel SmartAPI portal</div>
+                  <div><strong>Client ID:</strong> Your Angel trading account ID (e.g., A12345)</div>
+                  <div><strong>MPIN:</strong> Your 4-digit trading PIN (same as used in Angel app)</div>
+                  <div className="mt-2 p-2 bg-blue-100 rounded text-xs">
+                    <strong>Note:</strong> No 2FA/TOTP required for API authentication
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* General Test Instructions */}
           <Card className="bg-yellow-50 border-yellow-200">
             <CardContent className="p-4">
               <h4 className="font-medium text-yellow-800 mb-3">🧪 Testing Instructions</h4>
               <div className="text-sm text-yellow-700 space-y-2">
-                {config.broker === 'angel' ? (
-                  <>
-                    <div><strong>For Angel Broking:</strong></div>
-                    <div><strong>Step 1:</strong> Enter your API Key and MPIN</div>
-                    <div><strong>Step 2:</strong> Open your authenticator app</div>
-                    <div><strong>Step 3:</strong> Enter the 6-digit TOTP code</div>
-                    <div><strong>Step 4:</strong> Click "Test Real Broker Credentials"</div>
-                    <div className="mt-2 p-2 bg-yellow-100 rounded text-xs">
-                      <strong>Note:</strong> Angel Broking requires 2FA authentication. TOTP codes expire every 30 seconds.
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div><strong>Step 1:</strong> Try with WRONG credentials first</div>
-                    <div><strong>Step 2:</strong> Verify it shows "Authentication Failed"</div>
-                    <div><strong>Step 3:</strong> Enter your REAL credentials</div>
-                    <div><strong>Step 4:</strong> Verify it shows "Authenticated Successfully"</div>
-                  </>
-                )}
+                <div><strong>Step 1:</strong> Enter your REAL broker credentials</div>
+                <div><strong>Step 2:</strong> Click "Test Real Broker Credentials"</div>
+                <div><strong>Step 3:</strong> Verify authentication result</div>
                 <div className="mt-2 p-2 bg-yellow-100 rounded text-xs">
                   <strong>Security:</strong> Only valid credentials will pass authentication
                 </div>
