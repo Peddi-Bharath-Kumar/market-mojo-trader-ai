@@ -1,4 +1,3 @@
-
 import { TradingSignal } from './TradingRobotEngine';
 import { optionsGreeksEngine, type OptionsGreeksData } from './OptionsGreeksEngine';
 import { enhancedTradingEngine } from './EnhancedTradingEngine';
@@ -98,12 +97,9 @@ export class IntegratedTradingEngine {
 
   private async closeAllIntradayPositions(): Promise<void> {
     const positions = marketDataService.getPositions();
-    // Filter intraday positions by checking if they contain 'intraday' or 'mis' in strategy/type
-    const intradayPositions = positions.filter(pos => 
-      pos.strategy?.toLowerCase().includes('intraday') ||
-      pos.strategy?.toLowerCase().includes('scalping') ||
-      pos.type === 'intraday'
-    );
+    // For now, close all positions as we don't have a reliable way to distinguish intraday vs delivery
+    // In a real implementation, this would be tracked separately or use product type from broker API
+    const intradayPositions = positions; // Treat all positions as potentially intraday for safety
     
     for (const position of intradayPositions) {
       try {
@@ -116,7 +112,7 @@ export class IntegratedTradingEngine {
           validity: 'day'
         };
         
-        console.log(`🔄 Closing intraday position: ${position.symbol}`);
+        console.log(`🔄 Closing position: ${position.symbol}`);
         await orderExecutionService.placeOrder(closeOrder);
       } catch (error) {
         console.error(`❌ Failed to close position ${position.symbol}:`, error);
