@@ -4,13 +4,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TradingRobotDashboard } from './TradingRobotDashboard';
 import { IndianMarketAPIConfiguration } from './IndianMarketAPIConfiguration';
 import { RealAccountOverview } from './RealAccountOverview';
-import { VirtualTradingDashboard } from './VirtualTradingDashboard';
+import { VirtualTradingMode } from './VirtualTradingMode';
 import { marketDataService } from '@/services/MarketDataService';
 import { brokerAccountService } from '@/services/BrokerAccountService';
 
 export const TradingDashboard = () => {
   const [apiConfigured, setApiConfigured] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
+  const [isVirtualTrading, setIsVirtualTrading] = useState(false);
 
   useEffect(() => {
     // Check initial connection status
@@ -79,7 +80,10 @@ export const TradingDashboard = () => {
 
         {/* Virtual Trading */}
         <TabsContent value="virtual">
-          <VirtualTradingDashboard />
+          <VirtualTradingMode 
+            isActive={isVirtualTrading} 
+            onToggle={setIsVirtualTrading} 
+          />
         </TabsContent>
 
         {/* Analysis */}
