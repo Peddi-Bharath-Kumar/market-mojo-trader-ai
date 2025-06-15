@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,7 +24,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
   });
   
   const [clientId, setClientId] = useState('');
-  const [mpin, setMpin] = useState('');
+  const [password, setPassword] = useState(''); // Changed from mpin to password
   const [totpKey, setTotpKey] = useState(''); // For Angel Broking TOTP Key
   const [sessionToken, setSessionToken] = useState('');
   const [authMethod, setAuthMethod] = useState<'password' | 'session'>('password');
@@ -73,8 +72,8 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
         return;
       }
       
-      if (authMethod === 'password' && !mpin) {
-        alert('Please enter MPIN for password authentication');
+      if (authMethod === 'password' && !password) {
+        alert('Please enter Password for password authentication');
         return;
       }
       
@@ -101,6 +100,8 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
     
     try {
       console.log(`🔐 Testing REAL ${config.broker} credentials...`);
+      console.log('🔐 Auth method:', authMethod);
+      console.log('🔐 TOTP Key provided:', !!totpKey);
       
       let testResult;
       
@@ -117,7 +118,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
           config.broker,
           config.apiKey,
           config.broker === 'angel' ? clientId : config.apiSecret,
-          config.broker === 'angel' ? (authMethod === 'session' ? sessionToken : mpin) : config.accessToken || '',
+          config.broker === 'angel' ? (authMethod === 'session' ? sessionToken : password) : config.accessToken || '',
           config.broker === 'angel' ? totpKey : undefined // Pass TOTP key for Angel
         );
       }
@@ -134,7 +135,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
         marketDataService.setApiConfig({
           ...config,
           apiSecret: config.broker === 'angel' ? clientId : config.apiSecret,
-          accessToken: config.broker === 'angel' ? (authMethod === 'session' ? sessionToken : mpin) : config.accessToken
+          accessToken: config.broker === 'angel' ? (authMethod === 'session' ? sessionToken : password) : config.accessToken
         });
         
         console.log('✅ REAL API Connection successful!');
@@ -224,7 +225,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
             <Select value={config.broker} onValueChange={(value) => {
               setConfig(prev => ({ ...prev, broker: value }));
               setClientId('');
-              setMpin('');
+              setPassword('');
               setTotpKey('');
               setSessionToken('');
               setAuthMethod('password');
@@ -290,14 +291,13 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                         />
                       </div>
                       <div>
-                        <Label htmlFor="mpin">MPIN</Label>
+                        <Label htmlFor="password">Password</Label>
                         <Input
-                          id="mpin"
+                          id="password"
                           type={showSecrets ? 'text' : 'password'}
-                          value={mpin}
-                          onChange={(e) => setMpin(e.target.value)}
-                          placeholder="Your 4-digit trading PIN"
-                          maxLength={4}
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="Your Angel login password"
                         />
                       </div>
                       <div>
@@ -461,7 +461,7 @@ export const APIConfiguration: React.FC<APIConfigurationProps> = ({ onConfigured
                   <div className="ml-4 space-y-1">
                     <div>• <strong>API Key:</strong> Get from Angel SmartAPI portal</div>
                     <div>• <strong>Client ID:</strong> Your Angel trading account ID (e.g., A12345)</div>
-                    <div>• <strong>MPIN:</strong> Your 4-digit trading PIN</div>
+                    <div>• <strong>Password:</strong> Your Angel login password</div>
                     <div>• <strong>TOTP Key:</strong> Required for secure authentication</div>
                   </div>
                   

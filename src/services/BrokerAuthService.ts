@@ -1,4 +1,3 @@
-
 interface AuthTestResult {
   success: boolean;
   error?: string;
@@ -6,38 +5,54 @@ interface AuthTestResult {
   realConnection: boolean;
 }
 
-// Simple TOTP generator (based on RFC 6238)
+// Improved TOTP generator with better debugging
 function generateTOTP(secret: string, timeStep: number = 30): string {
   const epoch = Math.floor(Date.now() / 1000);
   const timeCounter = Math.floor(epoch / timeStep);
   
+  console.log('🔐 TOTP Debug Info:');
+  console.log('- Current epoch:', epoch);
+  console.log('- Time counter:', timeCounter);
+  console.log('- Time step:', timeStep);
+  
   // Simple TOTP implementation - in production you'd use a proper crypto library
   // For now, we'll generate a 6-digit code based on time
   const totp = ((timeCounter % 900000) + 100000).toString();
-  return totp.substring(0, 6);
+  const finalTotp = totp.substring(0, 6);
+  
+  console.log('- Generated TOTP:', finalTotp);
+  return finalTotp;
 }
 
 export class BrokerAuthService {
   static async testAngelBrokingAuth(
     apiKey: string, 
     clientId: string, 
-    mpin: string, 
+    password: string, 
     totpKey?: string
   ): Promise<AuthTestResult> {
-    console.log('🔐 Testing Angel Broking authentication with TOTP...');
+    console.log('🔐 Testing Angel Broking authentication with password...');
+    console.log('🔐 API Key:', apiKey.substring(0, 4) + '***');
+    console.log('🔐 Client ID:', clientId);
+    console.log('🔐 Password provided:', !!password);
+    console.log('🔐 TOTP Key provided:', !!totpKey);
     
     try {
       let requestBody: any = {
         clientcode: clientId,
-        password: mpin
+        password: password
       };
 
       // Add TOTP if provided
       if (totpKey) {
         const totp = generateTOTP(totpKey);
         requestBody.totp = totp;
-        console.log('🔐 Generated TOTP for authentication');
+        console.log('🔐 Adding TOTP to request:', totp);
+      } else {
+        console.log('⚠️ No TOTP Key provided - this might cause authentication failure');
       }
+
+      console.log('🔐 Request body:', JSON.stringify(requestBody, null, 2));
 
       // Step 1: Generate session using Angel Broking API
       const authResponse = await fetch('https://apiconnect.angelbroking.com/rest/auth/angelbroking/user/v1/loginByPassword', {
@@ -55,12 +70,15 @@ export class BrokerAuthService {
         body: JSON.stringify(requestBody)
       });
 
+      console.log('🔐 Response status:', authResponse.status);
+      console.log('🔐 Response headers:', Object.fromEntries(authResponse.headers.entries()));
+
       if (!authResponse.ok) {
         throw new Error(`HTTP ${authResponse.status}: ${authResponse.statusText}`);
       }
 
       const authData = await authResponse.json();
-      console.log('🔐 Angel Broking auth response:', authData);
+      console.log('🔐 Full Angel Broking auth response:', JSON.stringify(authData, null, 2));
 
       if (authData.status === true && authData.data?.jwtToken) {
         console.log('✅ Angel Broking authentication successful');
@@ -70,16 +88,20 @@ export class BrokerAuthService {
           realConnection: true
         };
       } else {
-        console.log('❌ Angel Broking authentication failed:', authData.message);
+        console.log('❌ Angel Broking authentication failed');
+        console.log('❌ Error code:', authData.errorcode);
+        console.log('❌ Error message:', authData.message);
         
         // Provide specific error guidance
         let errorMessage = authData.message || 'Authentication failed';
         if (authData.errorcode === 'AB1050' || authData.message === 'Invalid totp') {
           if (!totpKey) {
-            errorMessage = 'TOTP required but not provided. Please enter your TOTP Key.';
+            errorMessage = 'TOTP required but not provided. Please enter your TOTP Key from Angel SmartAPI portal.';
           } else {
-            errorMessage = 'Invalid TOTP. Please verify your TOTP Key is correct.';
+            errorMessage = `Invalid TOTP. Current generated: ${requestBody.totp}. Please verify your TOTP Key is correct or try again in 30 seconds.`;
           }
+        } else if (authData.errorcode === 'AB1010') {
+          errorMessage = 'Invalid client code or password. Please check your credentials.';
         }
         
         return {
@@ -202,14 +224,14 @@ export class BrokerAuthService {
     broker: string, 
     apiKey: string, 
     clientIdOrSecret: string, 
-    mpinOrAccessToken: string,
+    passwordOrAccessToken: string,
     totpKey?: string
   ): Promise<AuthTestResult> {
     switch (broker) {
       case 'angel':
-        return await this.testAngelBrokingAuth(apiKey, clientIdOrSecret, mpinOrAccessToken, totpKey);
+        return await this.testAngelBrokingAuth(apiKey, clientIdOrSecret, passwordOrAccessToken, totpKey);
       case 'zerodha':
-        return await this.testZerodhaAuth(apiKey, clientIdOrSecret, mpinOrAccessToken);
+        return await this.testZerodhaAuth(apiKey, clientIdOrSecret, passwordOrAccessToken);
       default:
         return {
           success: false,
