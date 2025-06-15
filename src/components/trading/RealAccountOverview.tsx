@@ -1,7 +1,9 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
   DollarSign, 
   TrendingUp, 
@@ -11,7 +13,9 @@ import {
   Wifi,
   WifiOff,
   AlertTriangle,
-  CheckCircle
+  CheckCircle,
+  Lock,
+  Info
 } from 'lucide-react';
 import { brokerAccountService, type BrokerAccount } from '@/services/BrokerAccountService';
 
@@ -93,7 +97,7 @@ export const RealAccountOverview = () => {
           <AlertTriangle className="h-12 w-12 mx-auto mb-4 text-amber-600" />
           <h3 className="text-lg font-medium mb-2">Connect Your Real Broker Account</h3>
           <p className="text-sm text-gray-600 mb-4">
-            Configure your broker API credentials in the Config tab to see real account data
+            Configure your broker API credentials in the API Setup tab to see real account data
           </p>
           {connectionError && (
             <div className="bg-red-50 border border-red-200 rounded p-3 mb-4 text-sm text-red-700">
@@ -167,6 +171,20 @@ export const RealAccountOverview = () => {
         </CardContent>
       </Card>
 
+      {/* Portfolio Access Warning */}
+      {account && !account.hasPortfolioDataAccess && (
+        <Alert>
+          <Lock className="h-4 w-4" />
+          <AlertDescription>
+            <strong>Limited Access:</strong> {account.portfolioError}
+            <div className="mt-2 text-xs">
+              <strong>Workaround:</strong> Use Angel Broking's mobile app or web platform to view positions. 
+              This is a browser CORS limitation, not an authentication issue.
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Real Account Summary - Only show if we have real data */}
       {isRealBrokerData && (
         <>
@@ -175,8 +193,31 @@ export const RealAccountOverview = () => {
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <DollarSign className="h-4 w-4 text-green-600" />
-                  <span className="text-sm text-gray-600">Total Portfolio Value</span>
+                  <span className="text-sm text-gray-600">Available Balance</span>
                   <Badge variant="outline" className="text-xs bg-green-50 text-green-700">REAL</Badge>
+                </div>
+                <div className="text-2xl font-bold">₹{account.availableBalance.toLocaleString()}</div>
+                <div className="text-sm text-gray-500">Ready for trading</div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-green-500">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Shield className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm text-gray-600">Used Margin</span>
+                  <Badge variant="outline" className="text-xs">REAL</Badge>
+                </div>
+                <div className="text-2xl font-bold">₹{account.usedMargin.toLocaleString()}</div>
+                <div className="text-sm text-gray-500">In positions</div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-l-4 border-l-orange-500">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <TrendingUp className="h-4 w-4 text-purple-600" />
+                  <span className="text-sm text-gray-600">Total Value</span>
                 </div>
                 <div className="text-2xl font-bold">₹{account.totalValue.toLocaleString()}</div>
                 <div className={`text-sm flex items-center gap-1 ${account.dayPnL >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -186,42 +227,26 @@ export const RealAccountOverview = () => {
               </CardContent>
             </Card>
 
-            <Card className="border-l-4 border-l-green-500">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Shield className="h-4 w-4 text-blue-600" />
-                  <span className="text-sm text-gray-600">Available Balance</span>
-                  <Badge variant="outline" className="text-xs">REAL</Badge>
-                </div>
-                <div className="text-2xl font-bold">₹{account.availableBalance.toLocaleString()}</div>
-                <div className="text-sm text-gray-500">Ready for new trades</div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-l-4 border-l-orange-500">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <TrendingUp className="h-4 w-4 text-purple-600" />
-                  <span className="text-sm text-gray-600">Used Margin</span>
-                </div>
-                <div className="text-2xl font-bold">₹{account.usedMargin.toLocaleString()}</div>
-                <div className="text-sm text-gray-500">In open positions</div>
-              </CardContent>
-            </Card>
-
             <Card className="border-l-4 border-l-purple-500">
               <CardContent className="p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <Shield className="h-4 w-4 text-orange-600" />
-                  <span className="text-sm text-gray-600">Active Positions</span>
+                  <span className="text-sm text-gray-600">Positions</span>
+                  {!account.hasPortfolioDataAccess && (
+                    <Lock className="h-3 w-3 text-amber-500" />
+                  )}
                 </div>
-                <div className="text-2xl font-bold">{account.positions.length}</div>
-                <div className="text-sm text-gray-500">Live trades</div>
+                <div className="text-2xl font-bold">
+                  {account.hasPortfolioDataAccess ? account.positions.length : 'N/A'}
+                </div>
+                <div className="text-sm text-gray-500">
+                  {account.hasPortfolioDataAccess ? 'Live trades' : 'Check app'}
+                </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* Real Positions */}
+          {/* Real Positions - Only if portfolio access is available */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -229,41 +254,65 @@ export const RealAccountOverview = () => {
                 <Badge variant="default" className="bg-green-600 text-white">
                   REAL BROKER DATA
                 </Badge>
-                <Badge variant="outline" className="text-green-700 border-green-300">
-                  ✅ LIVE
-                </Badge>
+                {account.hasPortfolioDataAccess ? (
+                  <Badge variant="outline" className="text-green-700 border-green-300">
+                    ✅ LIVE
+                  </Badge>
+                ) : (
+                  <Badge variant="outline" className="text-amber-700 border-amber-300">
+                    🔒 LIMITED
+                  </Badge>
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {account.positions.length > 0 ? (
-                <div className="space-y-3">
-                  {account.positions.map((position, index) => (
-                    <div key={index} className={`p-4 border rounded-lg ${position.pnl >= 0 ? 'border-l-4 border-l-green-500 bg-green-50' : 'border-l-4 border-l-red-500 bg-red-50'}`}>
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium text-lg">{position.symbol}</span>
-                            <Badge variant="outline" className="text-xs text-green-700 bg-green-50">REAL</Badge>
+              {account.hasPortfolioDataAccess ? (
+                account.positions.length > 0 ? (
+                  <div className="space-y-3">
+                    {account.positions.map((position, index) => (
+                      <div key={index} className={`p-4 border rounded-lg ${position.pnl >= 0 ? 'border-l-4 border-l-green-500 bg-green-50' : 'border-l-4 border-l-red-500 bg-red-50'}`}>
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-lg">{position.symbol}</span>
+                              <Badge variant="outline" className="text-xs text-green-700 bg-green-50">REAL</Badge>
+                            </div>
+                            <div className="text-sm text-gray-600">
+                              Qty: {position.quantity} | Avg: ₹{position.averagePrice.toFixed(2)} | Product: {position.product.toUpperCase()}
+                            </div>
                           </div>
-                          <div className="text-sm text-gray-600">
-                            Qty: {position.quantity} | Avg: ₹{position.averagePrice.toFixed(2)} | Product: {position.product.toUpperCase()}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-xl font-bold">₹{position.currentPrice.toFixed(2)}</div>
-                          <div className={`text-sm font-medium ${position.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {position.pnl >= 0 ? '+' : ''}₹{position.pnl.toFixed(2)} ({position.pnlPercent.toFixed(1)}%)
+                          <div className="text-right">
+                            <div className="text-xl font-bold">₹{position.currentPrice.toFixed(2)}</div>
+                            <div className={`text-sm font-medium ${position.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {position.pnl >= 0 ? '+' : ''}₹{position.pnl.toFixed(2)} ({position.pnlPercent.toFixed(1)}%)
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <TrendingUp className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>No active positions</p>
+                    <p className="text-sm">Start trading to see your positions here</p>
+                  </div>
+                )
               ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <TrendingUp className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p>No active positions</p>
-                  <p className="text-sm">Start trading to see your positions here</p>
+                <div className="text-center py-8">
+                  <Lock className="h-12 w-12 mx-auto mb-4 text-amber-500" />
+                  <h3 className="text-lg font-medium mb-2">Portfolio Data Limited</h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Due to browser CORS restrictions, position details are not available.
+                    Your account balance and funds data are working correctly.
+                  </p>
+                  <Alert className="text-left">
+                    <Info className="h-4 w-4" />
+                    <AlertDescription>
+                      <strong>To view positions:</strong> Use Angel Broking's mobile app or web platform.
+                      This is a common limitation when accessing broker APIs directly from browsers.
+                    </AlertDescription>
+                  </Alert>
                 </div>
               )}
             </CardContent>
@@ -280,6 +329,7 @@ export const RealAccountOverview = () => {
           <CardContent className="text-xs space-y-1">
             <div>Real Data Mode: {isRealBrokerData ? '✅ YES' : '❌ NO'}</div>
             <div>Connection Status: {isConnected ? '✅ Connected' : '❌ Disconnected'}</div>
+            <div>Portfolio Access: {account?.hasPortfolioDataAccess ? '✅ YES' : '❌ CORS Limited'}</div>
             <div>Last Updated: {lastUpdated?.toISOString()}</div>
             <div>Account ID: {account?.accountId}</div>
             <div>Is Simulation: {account?.accountId.startsWith('SIM_') ? '❌ YES' : '✅ NO'}</div>

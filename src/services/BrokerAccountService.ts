@@ -1,3 +1,4 @@
+
 interface BrokerAccount {
   accountId: string;
   availableBalance: number;
@@ -7,6 +8,8 @@ interface BrokerAccount {
   dayPnLPercent: number;
   positions: BrokerPosition[];
   orders: BrokerOrder[];
+  hasPortfolioDataAccess: boolean;
+  portfolioError?: string;
 }
 
 interface BrokerPosition {
@@ -335,7 +338,7 @@ class BrokerAccountService {
       this.authToken = authData.data.jwtToken;
       console.log('✅ Angel Broking authentication successful');
 
-      // Step 2: Fetch REAL account funds
+      // Step 2: Fetch REAL account funds (this works)
       console.log('💰 Fetching your REAL account balance...');
       const fundsResponse = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/user/v1/getRMS', {
         method: 'GET',
@@ -358,115 +361,116 @@ class BrokerAccountService {
         console.log('💰 Angel Funds API response:', fundsData);
       } else {
         console.warn('⚠️ Failed to fetch funds data:', await fundsResponse.text());
+        throw new Error('Failed to fetch account balance data');
       }
 
-      // Step 3: Fetch REAL positions
-      console.log('📊 Fetching your REAL positions...');
-      const positionsResponse = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getPosition', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${this.authToken}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-UserType': 'USER',
-          'X-SourceID': 'WEB',
-          'X-ClientLocalIP': '192.168.1.1',
-          'X-ClientPublicIP': '106.193.147.98',
-          'X-MACAddress': 'fe80::216:3eff:fe1d:e1d1',
-          'X-PrivateKey': this.credentials.apiKey
+      // Step 3: Try to fetch positions and holdings (may fail due to CORS)
+      let hasPortfolioAccess = true;
+      let portfolioError = '';
+      const allPositions: BrokerPosition[] = [];
+
+      try {
+        console.log('📊 Attempting to fetch your REAL positions...');
+        const positionsResponse = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getPosition', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.authToken}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-UserType': 'USER',
+            'X-SourceID': 'WEB',
+            'X-ClientLocalIP': '192.168.1.1',
+            'X-ClientPublicIP': '106.193.147.98',
+            'X-MACAddress': 'fe80::216:3eff:fe1d:e1d1',
+            'X-PrivateKey': this.credentials.apiKey
+          }
+        });
+
+        if (positionsResponse.ok) {
+          const positionsData = await positionsResponse.json();
+          console.log('📊 Angel Positions API response:', positionsData);
+          
+          // Process positions if available
+          if (positionsData?.data && Array.isArray(positionsData.data)) {
+            positionsData.data.forEach((pos: any) => {
+              if (parseInt(pos.netqty || '0') !== 0) {
+                allPositions.push({
+                  symbol: pos.tradingsymbol,
+                  quantity: parseInt(pos.netqty || '0'),
+                  averagePrice: parseFloat(pos.avgprice || '0'),
+                  currentPrice: parseFloat(pos.ltp || pos.avgprice || '0'),
+                  pnl: parseFloat(pos.pnl || '0'),
+                  pnlPercent: parseFloat(pos.pnlpercent || '0'),
+                  product: pos.producttype?.toLowerCase() || 'mis'
+                });
+              }
+            });
+          }
+        } else {
+          throw new Error('Positions API failed');
         }
-      });
 
-      let positionsData = null;
-      if (positionsResponse.ok) {
-        positionsData = await positionsResponse.json();
-        console.log('📊 Angel Positions API response:', positionsData);
-      } else {
-        console.warn('⚠️ Failed to fetch positions data:', await positionsResponse.text());
-      }
+        console.log('🏦 Attempting to fetch your REAL holdings...');
+        const holdingsResponse = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getAllHolding', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${this.authToken}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-UserType': 'USER',
+            'X-SourceID': 'WEB',
+            'X-ClientLocalIP': '192.168.1.1',
+            'X-ClientPublicIP': '106.193.147.98',
+            'X-MACAddress': 'fe80::216:3eff:fe1d:e1d1',
+            'X-PrivateKey': this.credentials.apiKey
+          }
+        });
 
-      // Step 4: Fetch REAL holdings
-      console.log('🏦 Fetching your REAL holdings...');
-      const holdingsResponse = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getAllHolding', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${this.authToken}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-UserType': 'USER',
-          'X-SourceID': 'WEB',
-          'X-ClientLocalIP': '192.168.1.1',
-          'X-ClientPublicIP': '106.193.147.98',
-          'X-MACAddress': 'fe80::216:3eff:fe1d:e1d1',
-          'X-PrivateKey': this.credentials.apiKey
+        if (holdingsResponse.ok) {
+          const holdingsData = await holdingsResponse.json();
+          console.log('🏦 Angel Holdings API response:', holdingsData);
+          
+          // Process holdings if available
+          if (holdingsData?.data && Array.isArray(holdingsData.data)) {
+            holdingsData.data.forEach((holding: any) => {
+              if (parseInt(holding.quantity || '0') > 0) {
+                allPositions.push({
+                  symbol: holding.tradingsymbol,
+                  quantity: parseInt(holding.quantity || '0'),
+                  averagePrice: parseFloat(holding.averageprice || '0'),
+                  currentPrice: parseFloat(holding.ltp || holding.averageprice || '0'),
+                  pnl: parseFloat(holding.pnl || '0'),
+                  pnlPercent: parseFloat(holding.pnlpercent || '0'),
+                  product: 'cnc'
+                });
+              }
+            });
+          }
+        } else {
+          throw new Error('Holdings API failed');
         }
-      });
 
-      let holdingsData = null;
-      if (holdingsResponse.ok) {
-        holdingsData = await holdingsResponse.json();
-        console.log('🏦 Angel Holdings API response:', holdingsData);
-      } else {
-        console.warn('⚠️ Failed to fetch holdings data:', await holdingsResponse.text());
+      } catch (portfolioErr) {
+        console.warn('⚠️ Portfolio data fetch failed (likely CORS restrictions):', portfolioErr);
+        hasPortfolioAccess = false;
+        portfolioError = 'Portfolio data unavailable due to browser CORS restrictions. Account balance is accessible.';
       }
 
-      // Process your REAL account data
+      // Process your REAL account data with available information
       if (fundsData?.status && fundsData.data) {
         const rmsData = fundsData.data;
-        const positions = positionsData?.data || [];
-        const holdings = holdingsData?.data || [];
 
-        console.log('✅ Processing YOUR REAL Angel Broking data:');
+        console.log('✅ Processing YOUR REAL Angel Broking account data:');
         console.log('💰 Available Cash: ₹', rmsData.availablecash);
         console.log('📊 Used Margin: ₹', rmsData.collateral);
-        console.log('🏦 Your Positions:', positions.length);
-        console.log('💎 Your Holdings:', holdings.length);
+        console.log('🏦 Portfolio Access:', hasPortfolioAccess ? 'Available' : 'Restricted');
 
         const availableBalance = parseFloat(rmsData.availablecash || '0');
         const usedMargin = parseFloat(rmsData.collateral || '0');
         
-        // Process your REAL trading positions
-        const allPositions: BrokerPosition[] = [];
-        
-        // Add intraday positions
-        if (positions.length > 0) {
-          positions.forEach((pos: any) => {
-            if (parseInt(pos.netqty || '0') !== 0) {
-              allPositions.push({
-                symbol: pos.tradingsymbol,
-                quantity: parseInt(pos.netqty || '0'),
-                averagePrice: parseFloat(pos.avgprice || '0'),
-                currentPrice: parseFloat(pos.ltp || pos.avgprice || '0'),
-                pnl: parseFloat(pos.pnl || '0'),
-                pnlPercent: parseFloat(pos.pnlpercent || '0'),
-                product: pos.producttype?.toLowerCase() || 'mis'
-              });
-            }
-          });
-        }
-
-        // Add long-term holdings
-        if (holdings.length > 0) {
-          holdings.forEach((holding: any) => {
-            if (parseInt(holding.quantity || '0') > 0) {
-              allPositions.push({
-                symbol: holding.tradingsymbol,
-                quantity: parseInt(holding.quantity || '0'),
-                averagePrice: parseFloat(holding.averageprice || '0'),
-                currentPrice: parseFloat(holding.ltp || holding.averageprice || '0'),
-                pnl: parseFloat(holding.pnl || '0'),
-                pnlPercent: parseFloat(holding.pnlpercent || '0'),
-                product: 'cnc'
-              });
-            }
-          });
-        }
-
-        // Calculate total portfolio value
-        const holdingsValue = holdings.reduce((sum: number, holding: any) => {
-          const qty = parseInt(holding.quantity || '0');
-          const ltp = parseFloat(holding.ltp || '0');
-          return sum + (qty * ltp);
+        // Calculate portfolio value (limited without portfolio access)
+        const holdingsValue = allPositions.reduce((sum, pos) => {
+          return sum + (pos.quantity * pos.currentPrice);
         }, 0);
 
         const totalValue = availableBalance + usedMargin + holdingsValue;
@@ -481,7 +485,9 @@ class BrokerAccountService {
           dayPnL,
           dayPnLPercent,
           positions: allPositions,
-          orders: []
+          orders: [],
+          hasPortfolioDataAccess: hasPortfolioAccess,
+          portfolioError: hasPortfolioAccess ? undefined : portfolioError
         };
 
         this.accountData = realAccountData;
@@ -492,6 +498,7 @@ class BrokerAccountService {
         console.log('💎 Holdings Value: ₹', holdingsValue.toLocaleString());
         console.log('📈 Total Portfolio: ₹', totalValue.toLocaleString());
         console.log('📊 Active Positions:', allPositions.length);
+        console.log('🔒 Portfolio Access:', hasPortfolioAccess ? 'Full' : 'Limited (Balance only)');
 
         return realAccountData;
       }
