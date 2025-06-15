@@ -2,6 +2,10 @@ import { PositionManager } from './trading/PositionManager';
 import { TradingSignal, MarketCondition, StrategyConfig, Position } from './trading/types';
 import { orderExecutionService, OrderRequest } from './OrderExecutionService';
 import { marketDataService } from './MarketDataService';
+import { MarketAnalyzer } from './trading/MarketAnalyzer';
+import { RiskManager } from './trading/risk/RiskManager';
+import { generateIntradaySignal } from './trading/strategies/IntradayStrategy';
+import { generateOptionsSignal } from './trading/strategies/OptionsStrategy';
 import { realDataService } from './RealDataService';
 
 export type { TradingSignal }; // Re-export for legacy dependencies
@@ -10,6 +14,8 @@ export class TradingRobotEngine {
   private config: StrategyConfig;
   private isActive: boolean = false;
   private positionManager: PositionManager;
+  private marketAnalyzer: MarketAnalyzer;
+  private riskManager: RiskManager;
   private marketCondition: MarketCondition | null = null;
   private dailyTradingStats = {
     totalTrades: 0,
@@ -23,6 +29,8 @@ export class TradingRobotEngine {
   constructor(config: StrategyConfig) {
     this.config = config;
     this.positionManager = new PositionManager();
+    this.marketAnalyzer = new MarketAnalyzer();
+    this.riskManager = new RiskManager(config);
   }
 
   public startRobot(): void {
@@ -39,7 +47,7 @@ export class TradingRobotEngine {
     console.log('📊 Multi-strategy Indian market robot active');
     console.log('🛡️ Advanced risk management enabled');
     
-    this.analyzeMarketConditions();
+    this.marketCondition = this.marketAnalyzer.analyzeMarketConditions();
     this.monitorMarket();
     this.startEndOfDayMonitor();
   }
@@ -104,77 +112,6 @@ export class TradingRobotEngine {
     console.log(`💼 Current Capital: ₹${stats.currentCapital.toLocaleString()}`);
   }
 
-  private analyzeMarketConditions(): MarketCondition {
-    const now = new Date();
-    const hour = now.getHours() + now.getMinutes() / 60;
-    
-    // Determine time of day
-    let timeOfDay: MarketCondition['timeOfDay'];
-    if (hour < 9.25) timeOfDay = 'pre_open';
-    else if (hour <= 10.5) timeOfDay = 'opening';
-    else if (hour <= 13) timeOfDay = 'morning';
-    else if (hour <= 15.4) timeOfDay = 'afternoon';
-    else timeOfDay = 'closing';
-    
-    // Enhanced market analysis with real factors
-    const marketData = this.getMarketData();
-    
-    const conditions: MarketCondition = {
-      trend: this.analyzeTrend(marketData),
-      volatility: this.analyzeVolatility(marketData),
-      volume: this.analyzeVolume(marketData),
-      marketSentiment: this.analyzeSentiment(),
-      timeOfDay,
-      dayType: this.getDayType()
-    };
-
-    this.marketCondition = conditions;
-    console.log('📈 Enhanced Market Analysis:', conditions);
-    return conditions;
-  }
-
-  private getMarketData() {
-    // In real implementation, this would fetch actual market data
-    const niftyChange = (Math.random() - 0.5) * 4; // -2% to +2%
-    const volatility = Math.random() * 0.8 + 0.1; // 10% to 90%
-    const volume = Math.random() * 2 + 0.5; // 0.5x to 2.5x normal
-    
-    return { niftyChange, volatility, volume };
-  }
-
-  private analyzeTrend(data: any): MarketCondition['trend'] {
-    if (data.niftyChange > 0.5) return 'bullish';
-    if (data.niftyChange < -0.5) return 'bearish';
-    return 'sideways';
-  }
-
-  private analyzeVolatility(data: any): MarketCondition['volatility'] {
-    if (data.volatility > 0.6) return 'extreme';
-    if (data.volatility > 0.4) return 'high';
-    if (data.volatility > 0.2) return 'medium';
-    return 'low';
-  }
-
-  private analyzeVolume(data: any): MarketCondition['volume'] {
-    if (data.volume > 2.0) return 'exceptional';
-    if (data.volume > 1.5) return 'high';
-    if (data.volume > 0.8) return 'normal';
-    return 'low';
-  }
-
-  private analyzeSentiment(): MarketCondition['marketSentiment'] {
-    const sentimentScore = Math.random();
-    if (sentimentScore > 0.6) return 'positive';
-    if (sentimentScore < 0.4) return 'negative';
-    return 'neutral';
-  }
-
-  private getDayType(): MarketCondition['dayType'] {
-    const day = new Date().getDay();
-    if (day === 4) return 'expiry'; // Thursday expiry
-    return 'normal';
-  }
-
   private monitorMarket(): void {
     if (!this.isActive) return;
 
@@ -184,10 +121,13 @@ export class TradingRobotEngine {
         return;
       }
 
-      this.analyzeMarketConditions();
+      this.marketCondition = this.marketAnalyzer.analyzeMarketConditions();
       await this.updatePositionsWithRealData();
       this.updateDailyStats();
-      await this.manageRiskAndTrailing();
+      await this.riskManager.managePositions(
+        this.positionManager.getPositions(), 
+        this.closePosition.bind(this)
+      );
       
       if (this.shouldGenerateSignals()) {
         await this.generateSignals();
@@ -242,103 +182,6 @@ export class TradingRobotEngine {
     stats.maxDrawdown = Math.min(stats.maxDrawdown, stats.currentDrawdown);
   }
 
-  private async manageRiskAndTrailing(): Promise<void> {
-    for (const position of this.positionManager.getPositions()) {
-      if (position.pnlPercent < -5.0) {
-        console.log(`⚠️ Risk limit hit for ${position.symbol} - Auto closing`);
-        await this.closePosition(position, 'Risk management - Max loss exceeded');
-        continue;
-      }
-      
-      await this.manageTrailingStop(position);
-      
-      if (this.config.partialProfitBooking) {
-        this.handlePartialProfitBooking(position);
-      }
-      
-      await this.checkTimeBasedExit(position);
-    }
-  }
-
-  private async manageTrailingStop(position: Position): Promise<void> {
-    if (!this.config.trailingStopEnabled) return;
-    
-    const profitPercent = position.pnlPercent;
-    
-    if (profitPercent >= 1.0 && !position.trailingActive) {
-      position.trailingActive = true;
-      position.stopLoss = position.entryPrice;
-      console.log(`🎯 Trailing activated for ${position.symbol} - Moved to breakeven`);
-    }
-    
-    if (position.trailingActive) {
-      let trailPercent = 0.015;
-      
-      if (profitPercent > 5.0) trailPercent = 0.025;
-      else if (profitPercent > 3.0) trailPercent = 0.02;
-      
-      const newStopLoss = position.action === 'buy' ? 
-        position.currentPrice * (1 - trailPercent) :
-        position.currentPrice * (1 + trailPercent);
-      
-      if ((position.action === 'buy' && newStopLoss > position.stopLoss) ||
-          (position.action === 'sell' && newStopLoss < position.stopLoss)) {
-        position.stopLoss = newStopLoss;
-        console.log(`📈 Trailing stop updated: ${position.symbol} → ₹${newStopLoss.toFixed(2)} (${profitPercent.toFixed(1)}% profit)`);
-      }
-    }
-    
-    await this.checkExitConditions(position);
-  }
-
-  private handlePartialProfitBooking(position: Position): void {
-    const profitPercent = position.pnlPercent;
-    
-    if (profitPercent >= 3.0 && position.profitBookingLevel === 0) {
-      const partialQuantity = Math.floor(position.quantity * 0.4);
-      if (partialQuantity > 0) {
-        position.quantity -= partialQuantity;
-        position.profitBookingLevel = 1;
-        console.log(`💰 Booked 40% profit for ${position.symbol} at ${profitPercent.toFixed(1)}% gain`);
-      }
-    }
-    
-    if (profitPercent >= 6.0 && position.profitBookingLevel === 1) {
-      const partialQuantity = Math.floor(position.quantity * 0.5);
-      if (partialQuantity > 0) {
-        position.quantity -= partialQuantity;
-        position.profitBookingLevel = 2;
-        console.log(`💰 Booked additional 30% profit for ${position.symbol} at ${profitPercent.toFixed(1)}% gain`);
-      }
-    }
-  }
-
-  private async checkTimeBasedExit(position: Position): Promise<void> {
-    const holdingTime = Date.now() - position.entryTime.getTime();
-    const hour = new Date().getHours() + new Date().getMinutes() / 60;
-    
-    if (position.strategy.includes('Scalping') && holdingTime > 1800000) {
-      await this.closePosition(position, 'Scalping time limit reached');
-    }
-    
-    if (hour >= 15.25 && position.strategy.includes('Intraday')) {
-      await this.closePosition(position, 'Market closing - Intraday exit');
-    }
-  }
-
-  private async checkExitConditions(position: Position): Promise<void> {
-    const shouldExit = 
-      (position.action === 'buy' && position.currentPrice <= position.stopLoss) ||
-      (position.action === 'sell' && position.currentPrice >= position.stopLoss) ||
-      (position.action === 'buy' && position.currentPrice >= position.target) ||
-      (position.action === 'sell' && position.currentPrice <= position.target);
-
-    if (shouldExit) {
-      const reason = position.pnlPercent > 0 ? 'Target/Trailing Stop' : 'Stop Loss';
-      await this.closePosition(position, reason);
-    }
-  }
-
   private async closePosition(position: Position, reason: string): Promise<void> {
     console.log(`🔄 Closing ${position.symbol}: ${reason} - P&L: ${position.pnlPercent.toFixed(2)}%`);
     
@@ -385,25 +228,19 @@ export class TradingRobotEngine {
       if (this.positionManager.getPositionCount() >= this.config.maxPositions) break;
       if (this.positionManager.getPositions().some(p => p.symbol === symbol)) continue;
 
-      // Intraday Strategy
       if (this.config.intradayEnabled) {
-        const intradaySignal = await this.intradayStrategy(symbol);
+        const intradaySignal = await generateIntradaySignal(symbol, this.marketCondition, this.config, this.dailyTradingStats.currentCapital);
         if (intradaySignal) {
           const isPlaced = await this.executeSignal(intradaySignal);
-          if (isPlaced) {
-            signals.push(intradaySignal);
-          }
+          if (isPlaced) signals.push(intradaySignal);
         }
       }
 
-      // Options Strategy
       if (this.config.optionsEnabled) {
-        const optionsSignal = this.optionsStrategy(symbol);
+        const optionsSignal = generateOptionsSignal(symbol, this.marketCondition);
         if (optionsSignal) {
            const isPlaced = await this.executeSignal(optionsSignal);
-          if (isPlaced) {
-            signals.push(optionsSignal);
-          }
+          if (isPlaced) signals.push(optionsSignal);
         }
       }
     }
@@ -460,162 +297,6 @@ export class TradingRobotEngine {
         }
         return false;
     }
-  }
-
-  private async intradayStrategy(symbol: string): Promise<TradingSignal | null> {
-    if (!this.marketCondition) return null;
-  
-    try {
-      // Fetch both real-time price and technical indicators
-      const priceData = await marketDataService.getRealTimePrice(symbol);
-      const technicals = await realDataService.getTechnicalIndicators(symbol);
-
-      if (!priceData || !priceData.ltp || !technicals) {
-        console.warn(`Could not get complete market data for ${symbol}, skipping strategy.`);
-        return null;
-      }
-      const currentPrice = priceData.ltp;
-      const atr = technicals.atr; // Use real ATR from indicators
-  
-      const { trend } = this.marketCondition;
-  
-      // --- Enhanced Buy Signal with Confluence ---
-      const isBullishConfluence = 
-        trend === 'bullish' &&
-        currentPrice > (technicals.movingAverages?.['20_ema'] || 0) &&
-        technicals.rsi < 65; // Avoid buying into overbought conditions
-  
-      if (isBullishConfluence && this.positionManager.getPositionCount() < this.config.maxPositions) {
-        const stopLoss = this.calculateStopLoss(currentPrice, atr, 'buy');
-        const target = this.calculateTarget(currentPrice, stopLoss, 'buy');
-        const quantity = this.calculatePositionSize(currentPrice, stopLoss);
-        
-        if (quantity <= 0) return null;
-  
-        return {
-          symbol,
-          action: 'buy',
-          orderType: 'limit',
-          quantity,
-          price: currentPrice,
-          confidence: 0.80, // Higher confidence due to confluence
-          reason: `Bullish trend, >20 EMA, RSI<65.`,
-          strategy: 'Intraday Confluence',
-          stopLoss,
-          target,
-        };
-      }
-  
-      // --- Enhanced Sell Signal with Confluence ---
-      const isBearishConfluence = 
-        trend === 'bearish' &&
-        currentPrice < (technicals.movingAverages?.['20_ema'] || 0) &&
-        technicals.rsi > 35; // Avoid selling into oversold conditions
-
-      if (isBearishConfluence && this.positionManager.getPositionCount() < this.config.maxPositions) {
-        const stopLoss = this.calculateStopLoss(currentPrice, atr, 'sell');
-        const target = this.calculateTarget(currentPrice, stopLoss, 'sell');
-        const quantity = this.calculatePositionSize(currentPrice, stopLoss);
-        
-        if (quantity <= 0) return null;
-  
-        return {
-          symbol,
-          action: 'sell',
-          orderType: 'limit',
-          quantity,
-          price: currentPrice,
-          confidence: 0.78, // Higher confidence
-          reason: `Bearish trend, <20 EMA, RSI>35.`,
-          strategy: 'Intraday Confluence',
-          stopLoss,
-          target,
-        };
-      }
-    } catch (error) {
-      console.error(`Error in intraday strategy for ${symbol}:`, error);
-    }
-  
-    return null;
-  }
-
-  private optionsStrategy(symbol: string): TradingSignal | null {
-    if (!this.marketCondition) return null;
-    if (symbol !== 'NIFTY50' && symbol !== 'BANKNIFTY') return null;
-
-    const { trend, volatility, marketSentiment } = this.marketCondition;
-
-    if (trend === 'sideways' && volatility === 'low') {
-      return {
-        symbol: `${symbol}_CE`,
-        action: 'sell',
-        orderType: 'limit',
-        quantity: 1,
-        confidence: 0.80,
-        reason: 'Sideways market - Iron Condor strategy for premium collection',
-        strategy: 'Options Iron Condor'
-      };
-    }
-
-    if (volatility === 'high' && marketSentiment === 'neutral') {
-      return {
-        symbol: `${symbol}_STRADDLE`,
-        action: 'buy',
-        orderType: 'market',
-        quantity: 1,
-        confidence: 0.85,
-        reason: 'High volatility expected - Long Straddle for directional move',
-        strategy: 'Options Long Straddle'
-      };
-    }
-
-    return null;
-  }
-
-  private calculatePositionSize(price: number, stopLossPrice: number): number {
-    const capital = this.dailyTradingStats.currentCapital;
-    const riskAmount = capital * (this.config.riskPerTrade / 100);
-    const riskPerShare = Math.abs(price - stopLossPrice);
-
-    if (riskPerShare === 0) return 0;
-
-    const size = Math.floor(riskAmount / riskPerShare);
-    // For indices like NIFTY, size is in lots, not shares. This logic needs refinement for real trading.
-    return size > 0 ? size : 0;
-  }
-
-  private calculateStopLoss(price: number, atr: number, action: 'buy' | 'sell'): number {
-    const stopLossDistance = atr * 1.5; // Tighter stop loss based on real volatility: 1.5x ATR
-    
-    if (action === 'buy') {
-      return price - stopLossDistance;
-    } else {
-      return price + stopLossDistance;
-    }
-  }
-
-  private calculateTarget(price: number, stopLoss: number, action: 'buy' | 'sell'): number {
-    const riskDistance = Math.abs(price - stopLoss);
-    const targetDistance = riskDistance * 2.0; // Aim for a higher 1:2.0 Risk-to-Reward ratio
-    
-    if (action === 'buy') {
-      return price + targetDistance;
-    } else {
-      return price - targetDistance;
-    }
-  }
-
-  private getSymbolATR(symbol: string): number {
-    // This function is now DEPRECATED in favor of real ATR from technical indicators.
-    // It is kept as a fallback only. We should remove this in a future refactor.
-    console.warn(`DEPRECATED: getSymbolATR called for ${symbol}. Using mocked data.`);
-    const atrMap: { [key: string]: number } = {
-      'NIFTY50': 120.5, 'BANKNIFTY': 350.0,
-      'RELIANCE': 45.8, 'TCS': 55.2, 'INFY': 30.1,
-      'HDFC': 40.5, 'ICICI': 25.3, 'SBI': 15.7
-    };
-    // Return a default ATR if symbol not found, representing an average stock
-    return atrMap[symbol] || 50.0;
   }
 
   public getRobotStatus() {
