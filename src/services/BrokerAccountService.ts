@@ -88,7 +88,7 @@ class BrokerAccountService {
     };
 
     try {
-      // First, fetch profile data (this usually works)
+      // First, fetch profile data (this usually works better than portfolio endpoints)
       const response = await this.makeApiRequest(
         'https://apiconnect.angelbroking.com/rest/secure/angelbroking/user/v1/getProfile',
         {
@@ -114,9 +114,9 @@ class BrokerAccountService {
       const usedMargin = parseFloat(profile.usedmargin || '0');
       const totalValue = parseFloat(profile.networth || '0');
 
-      // Try to fetch positions with better CORS handling
+      // Always expect CORS issues for portfolio data from browser
       const { positions, dayPnL, hasPortfolioDataAccess, portfolioError } = 
-        await this.fetchAngelPositions(baseHeaders);
+        await this.fetchAngelPositionsWithCorsHandling(baseHeaders);
 
       const dayPnLPercent = totalValue > 0 ? (dayPnL / totalValue) * 100 : 0;
 
@@ -133,7 +133,7 @@ class BrokerAccountService {
         portfolioError
       };
 
-      console.log('✅ Angel Broking account data processed');
+      console.log('✅ Angel Broking account data processed (profile data successful)');
       return account;
     } catch (error: any) {
       console.error('❌ Failed to fetch Angel Broking account data:', error);
@@ -141,7 +141,7 @@ class BrokerAccountService {
     }
   }
 
-  private async fetchAngelPositions(baseHeaders: any): Promise<{
+  private async fetchAngelPositionsWithCorsHandling(baseHeaders: any): Promise<{
     positions: BrokerPosition[];
     dayPnL: number;
     hasPortfolioDataAccess: boolean;
@@ -149,100 +149,116 @@ class BrokerAccountService {
   }> {
     let positions: BrokerPosition[] = [];
     let dayPnL = 0;
-    let hasPortfolioDataAccess = true;
+    let hasPortfolioDataAccess = false;
     let portfolioError: string | null = null;
 
-    try {
-      // Try multiple endpoints for positions data
-      const positionsEndpoints = [
-        'https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getPositions',
-        'https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getHolding'
-      ];
+    console.log('🔍 Attempting to fetch portfolio data (expecting CORS restrictions)...');
 
-      for (const endpoint of positionsEndpoints) {
-        try {
-          const positionsResponse = await this.makeApiRequest(endpoint, {
-            headers: {
-              'Authorization': `Bearer ${this.credentials!.accessToken}`,
-              ...baseHeaders
-            }
-          });
+    // Define all possible portfolio endpoints
+    const portfolioEndpoints = [
+      'https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getPositions',
+      'https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getHolding',
+      'https://apiconnect.angelbroking.com/rest/secure/angelbroking/user/v1/getRMS'
+    ];
 
-          if (positionsResponse.ok) {
-            const positionsData = await positionsResponse.json();
-
-            if (positionsData.status && positionsData.data) {
-              positions = positionsData.data.map((item: any) => {
-                const pnl = parseFloat(item.unrealisedprofit || item.pnl || '0');
-                dayPnL += pnl;
-
-                return {
-                  symbol: item.symbolname || item.tradingsymbol,
-                  quantity: parseInt(item.netqty || item.quantity || '0'),
-                  averagePrice: parseFloat(item.averageprice || item.price || '0'),
-                  currentPrice: parseFloat(item.ltp || item.lastprice || '0'),
-                  pnl: pnl,
-                  pnlPercent: parseFloat(item.pnlpercent || '0'),
-                  product: (item.producttype || item.product || 'mis').toLowerCase() as 'mis' | 'cnc' | 'nrml'
-                };
-              });
-              
-              console.log(`✅ Successfully fetched positions from ${endpoint}`);
-              break; // Success, exit the loop
-            }
+    for (const endpoint of portfolioEndpoints) {
+      try {
+        console.log(`🧪 Testing endpoint: ${endpoint}`);
+        
+        const positionsResponse = await this.makeApiRequestWithTimeout(endpoint, {
+          headers: {
+            'Authorization': `Bearer ${this.credentials!.accessToken}`,
+            ...baseHeaders
           }
-        } catch (endpointError) {
-          console.warn(`Failed to fetch from ${endpoint}:`, endpointError);
-          continue; // Try next endpoint
+        }, 5000); // 5 second timeout
+
+        if (positionsResponse.ok) {
+          const positionsData = await positionsResponse.json();
+
+          if (positionsData.status && positionsData.data) {
+            positions = positionsData.data.map((item: any) => {
+              const pnl = parseFloat(item.unrealisedprofit || item.pnl || '0');
+              dayPnL += pnl;
+
+              return {
+                symbol: item.symbolname || item.tradingsymbol,
+                quantity: parseInt(item.netqty || item.quantity || '0'),
+                averagePrice: parseFloat(item.averageprice || item.price || '0'),
+                currentPrice: parseFloat(item.ltp || item.lastprice || '0'),
+                pnl: pnl,
+                pnlPercent: parseFloat(item.pnlpercent || '0'),
+                product: (item.producttype || item.product || 'mis').toLowerCase() as 'mis' | 'cnc' | 'nrml'
+              };
+            });
+            
+            hasPortfolioDataAccess = true;
+            portfolioError = null;
+            console.log(`✅ Successfully fetched ${positions.length} positions from ${endpoint}`);
+            break; // Success, exit the loop
+          }
         }
+      } catch (endpointError: any) {
+        console.warn(`❌ Endpoint failed: ${endpoint}`, endpointError.message);
+        
+        // Check if it's specifically a CORS error
+        if (endpointError.message.includes('CORS') || 
+            endpointError.message.includes('Access-Control-Allow-Origin') ||
+            endpointError.message.includes('ERR_FAILED')) {
+          portfolioError = 'CORS Policy Restriction: Browser cannot access Angel Broking portfolio APIs directly. Use Angel\'s web platform or mobile app to view positions.';
+        }
+        continue; // Try next endpoint
       }
+    }
 
-      // If all endpoints failed
-      if (positions.length === 0) {
-        hasPortfolioDataAccess = false;
-        portfolioError = 'CORS restriction - Portfolio data unavailable in browser. Use Angel Broking app for positions.';
-        console.warn('All position endpoints failed due to CORS');
-      }
-
-    } catch (corsError: any) {
-      hasPortfolioDataAccess = false;
-      portfolioError = 'Browser CORS limitation - Portfolio data requires native app access';
-      console.error('CORS error fetching positions:', corsError.message);
+    // If all endpoints failed, provide clear guidance
+    if (!hasPortfolioDataAccess) {
+      portfolioError = portfolioError || 'Portfolio data unavailable due to browser security restrictions. Account balance and funds data is working correctly.';
+      console.warn('⚠️ All portfolio endpoints failed due to CORS - this is expected behavior from financial APIs');
     }
 
     return { positions, dayPnL, hasPortfolioDataAccess, portfolioError };
   }
 
-  private async makeApiRequest(url: string, options: RequestInit): Promise<Response> {
-    // Add CORS-friendly options
-    const corsOptions: RequestInit = {
-      ...options,
-      mode: 'cors',
-      credentials: 'omit',
-      headers: {
-        ...options.headers,
-        'Access-Control-Allow-Origin': '*'
-      }
-    };
+  private async makeApiRequestWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      return await fetch(url, corsOptions);
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        mode: 'cors',
+        credentials: 'omit'
+      });
+      clearTimeout(timeoutId);
+      return response;
     } catch (error: any) {
-      // If CORS fails, try with different mode
-      if (error.message.includes('CORS') || error.message.includes('cors')) {
-        console.warn('CORS error detected, trying alternative approach...');
-        
-        // Try with no-cors mode (limited response access)
-        try {
-          return await fetch(url, {
-            ...options,
-            mode: 'no-cors'
-          });
-        } catch (noCorsError) {
-          console.error('Both CORS modes failed:', noCorsError);
-          throw new Error('CORS policy prevents API access from browser');
-        }
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        throw new Error('Request timeout - API took too long to respond');
       }
+      throw error;
+    }
+  }
+
+  private async makeApiRequest(url: string, options: RequestInit): Promise<Response> {
+    try {
+      // Try standard CORS request first
+      return await fetch(url, {
+        ...options,
+        mode: 'cors',
+        credentials: 'omit'
+      });
+    } catch (error: any) {
+      console.error('Standard CORS request failed:', error.message);
+      
+      // If it's a CORS error, throw a clear message
+      if (error.message.includes('CORS') || 
+          error.message.includes('Access-Control-Allow-Origin') ||
+          error.message.includes('ERR_FAILED')) {
+        throw new Error('CORS Policy Restriction: Financial APIs block browser access for security. Use broker\'s native app or web platform.');
+      }
+      
       throw error;
     }
   }
