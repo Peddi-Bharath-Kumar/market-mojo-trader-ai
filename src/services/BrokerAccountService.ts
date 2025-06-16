@@ -76,20 +76,28 @@ class BrokerAccountService {
       throw new Error('Angel Broking credentials not set or incorrect broker.');
     }
 
+    const baseHeaders = {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-UserType': 'USER',
+      'X-SourceID': 'WEB',
+      'X-ClientLocalIP': '192.168.1.1',
+      'X-ClientPublicIP': '106.193.147.98',
+      'X-MACAddress': 'fe80::216:3eff:fe1d:e1d1',
+      'X-PrivateKey': this.credentials.apiKey
+    };
+
     try {
-      const response = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/user/v1/getProfile', {
-        headers: {
-          'Authorization': `Bearer ${this.credentials.accessToken}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'X-UserType': 'USER',
-          'X-SourceID': 'WEB',
-          'X-ClientLocalIP': '192.168.1.1',
-          'X-ClientPublicIP': '106.193.147.98',
-          'X-MACAddress': 'fe80::216:3eff:fe1d:e1d1',
-          'X-PrivateKey': this.credentials.apiKey
+      // First, fetch profile data (this usually works)
+      const response = await this.makeApiRequest(
+        'https://apiconnect.angelbroking.com/rest/secure/angelbroking/user/v1/getProfile',
+        {
+          headers: {
+            'Authorization': `Bearer ${this.credentials.accessToken}`,
+            ...baseHeaders
+          }
         }
-      });
+      );
 
       if (!response.ok) {
         throw new Error(`Angel Broking API error: ${response.status} ${response.statusText}`);
@@ -97,31 +105,66 @@ class BrokerAccountService {
 
       const data = await response.json();
 
-      if (data.status && data.data) {
-        const profile = data.data;
-        const availableBalance = parseFloat(profile.availablecash || '0');
-        const usedMargin = parseFloat(profile.usedmargin || '0');
-        const totalValue = parseFloat(profile.networth || '0');
+      if (!data.status || !data.data) {
+        throw new Error(data.message || 'Failed to fetch profile data');
+      }
 
-        // Fetch positions separately due to CORS issue
-        let positions: BrokerPosition[] = [];
-        let dayPnL = 0;
-        let dayPnLPercent = 0;
-        let hasPortfolioDataAccess = true;
-        let portfolioError: string | null = null;
+      const profile = data.data;
+      const availableBalance = parseFloat(profile.availablecash || '0');
+      const usedMargin = parseFloat(profile.usedmargin || '0');
+      const totalValue = parseFloat(profile.networth || '0');
 
+      // Try to fetch positions with better CORS handling
+      const { positions, dayPnL, hasPortfolioDataAccess, portfolioError } = 
+        await this.fetchAngelPositions(baseHeaders);
+
+      const dayPnLPercent = totalValue > 0 ? (dayPnL / totalValue) * 100 : 0;
+
+      const account: BrokerAccount = {
+        accountId: profile.clientcode,
+        availableBalance,
+        usedMargin,
+        totalValue,
+        dayPnL,
+        dayPnLPercent,
+        positions,
+        orders: [], // TODO: Fetch orders
+        hasPortfolioDataAccess,
+        portfolioError
+      };
+
+      console.log('✅ Angel Broking account data processed');
+      return account;
+    } catch (error: any) {
+      console.error('❌ Failed to fetch Angel Broking account data:', error);
+      throw new Error(error.message || 'Failed to fetch account data');
+    }
+  }
+
+  private async fetchAngelPositions(baseHeaders: any): Promise<{
+    positions: BrokerPosition[];
+    dayPnL: number;
+    hasPortfolioDataAccess: boolean;
+    portfolioError: string | null;
+  }> {
+    let positions: BrokerPosition[] = [];
+    let dayPnL = 0;
+    let hasPortfolioDataAccess = true;
+    let portfolioError: string | null = null;
+
+    try {
+      // Try multiple endpoints for positions data
+      const positionsEndpoints = [
+        'https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getPositions',
+        'https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getHolding'
+      ];
+
+      for (const endpoint of positionsEndpoints) {
         try {
-          const positionsResponse = await fetch('https://apiconnect.angelbroking.com/rest/secure/angelbroking/portfolio/v1/getPositions', {
+          const positionsResponse = await this.makeApiRequest(endpoint, {
             headers: {
-              'Authorization': `Bearer ${this.credentials.accessToken}`,
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-              'X-UserType': 'USER',
-              'X-SourceID': 'WEB',
-              'X-ClientLocalIP': '192.168.1.1',
-              'X-ClientPublicIP': '106.193.147.98',
-              'X-MACAddress': 'fe80::216:3eff:fe1d:e1d1',
-              'X-PrivateKey': this.credentials.apiKey
+              'Authorization': `Bearer ${this.credentials!.accessToken}`,
+              ...baseHeaders
             }
           });
 
@@ -130,58 +173,77 @@ class BrokerAccountService {
 
             if (positionsData.status && positionsData.data) {
               positions = positionsData.data.map((item: any) => {
-                const pnl = parseFloat(item.unrealisedprofit || '0');
+                const pnl = parseFloat(item.unrealisedprofit || item.pnl || '0');
                 dayPnL += pnl;
 
                 return {
-                  symbol: item.symbolname,
-                  quantity: parseInt(item.netqty || '0'),
-                  averagePrice: parseFloat(item.averageprice || '0'),
-                  currentPrice: parseFloat(item.ltp || '0'),
+                  symbol: item.symbolname || item.tradingsymbol,
+                  quantity: parseInt(item.netqty || item.quantity || '0'),
+                  averagePrice: parseFloat(item.averageprice || item.price || '0'),
+                  currentPrice: parseFloat(item.ltp || item.lastprice || '0'),
                   pnl: pnl,
                   pnlPercent: parseFloat(item.pnlpercent || '0'),
-                  product: item.producttype.toLowerCase() as 'mis' | 'cnc' | 'nrml'
+                  product: (item.producttype || item.product || 'mis').toLowerCase() as 'mis' | 'cnc' | 'nrml'
                 };
               });
-            } else {
-              hasPortfolioDataAccess = false;
-              portfolioError = positionsData.message || 'Failed to fetch positions';
-              console.warn('Failed to fetch positions:', positionsData.message);
+              
+              console.log(`✅ Successfully fetched positions from ${endpoint}`);
+              break; // Success, exit the loop
             }
-          } else {
-            hasPortfolioDataAccess = false;
-            portfolioError = `Failed to fetch positions: ${positionsResponse.status} ${positionsResponse.statusText}`;
-            console.warn('Failed to fetch positions:', positionsResponse.status, positionsResponse.statusText);
           }
-        } catch (corsError: any) {
-          hasPortfolioDataAccess = false;
-          portfolioError = 'CORS error - positions data unavailable';
-          console.error('CORS error fetching positions:', corsError.message);
+        } catch (endpointError) {
+          console.warn(`Failed to fetch from ${endpoint}:`, endpointError);
+          continue; // Try next endpoint
         }
-
-        dayPnLPercent = totalValue > 0 ? (dayPnL / totalValue) * 100 : 0;
-
-        const account: BrokerAccount = {
-          accountId: profile.clientcode,
-          availableBalance,
-          usedMargin,
-          totalValue,
-          dayPnL,
-          dayPnLPercent,
-          positions,
-          orders: [], // TODO: Fetch orders
-          hasPortfolioDataAccess,
-          portfolioError
-        };
-
-        console.log('✅ Angel Broking account data processed');
-        return account;
-      } else {
-        throw new Error(data.message || 'Failed to fetch profile data');
       }
+
+      // If all endpoints failed
+      if (positions.length === 0) {
+        hasPortfolioDataAccess = false;
+        portfolioError = 'CORS restriction - Portfolio data unavailable in browser. Use Angel Broking app for positions.';
+        console.warn('All position endpoints failed due to CORS');
+      }
+
+    } catch (corsError: any) {
+      hasPortfolioDataAccess = false;
+      portfolioError = 'Browser CORS limitation - Portfolio data requires native app access';
+      console.error('CORS error fetching positions:', corsError.message);
+    }
+
+    return { positions, dayPnL, hasPortfolioDataAccess, portfolioError };
+  }
+
+  private async makeApiRequest(url: string, options: RequestInit): Promise<Response> {
+    // Add CORS-friendly options
+    const corsOptions: RequestInit = {
+      ...options,
+      mode: 'cors',
+      credentials: 'omit',
+      headers: {
+        ...options.headers,
+        'Access-Control-Allow-Origin': '*'
+      }
+    };
+
+    try {
+      return await fetch(url, corsOptions);
     } catch (error: any) {
-      console.error('❌ Failed to fetch Angel Broking account data:', error);
-      throw new Error(error.message || 'Failed to fetch account data');
+      // If CORS fails, try with different mode
+      if (error.message.includes('CORS') || error.message.includes('cors')) {
+        console.warn('CORS error detected, trying alternative approach...');
+        
+        // Try with no-cors mode (limited response access)
+        try {
+          return await fetch(url, {
+            ...options,
+            mode: 'no-cors'
+          });
+        } catch (noCorsError) {
+          console.error('Both CORS modes failed:', noCorsError);
+          throw new Error('CORS policy prevents API access from browser');
+        }
+      }
+      throw error;
     }
   }
 

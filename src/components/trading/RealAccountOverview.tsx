@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,7 +14,8 @@ import {
   AlertTriangle,
   CheckCircle,
   Lock,
-  Info
+  Info,
+  ExternalLink
 } from 'lucide-react';
 import { brokerAccountService, type BrokerAccount } from '@/services/BrokerAccountService';
 
@@ -171,15 +171,45 @@ export const RealAccountOverview = () => {
         </CardContent>
       </Card>
 
+      {/* CORS Solution Alert */}
+      {account && !account.hasPortfolioDataAccess && account.portfolioError?.includes('CORS') && (
+        <Alert className="border-blue-200 bg-blue-50">
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            <div className="space-y-2">
+              <div className="font-semibold text-blue-800">Browser CORS Limitation Detected</div>
+              <div className="text-sm text-blue-700">
+                Your broker account connection is working, but portfolio data is blocked by browser security policies.
+              </div>
+              <div className="text-xs text-blue-600 space-y-1">
+                <div><strong>✅ Working:</strong> Account balance, margins, funds data</div>
+                <div><strong>❌ Blocked:</strong> Live positions, holdings data</div>
+              </div>
+              <div className="flex items-center gap-2 mt-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-blue-700 border-blue-300"
+                  onClick={() => window.open('https://smartapi.angelbroking.com/', '_blank')}
+                >
+                  <ExternalLink className="h-3 w-3 mr-1" />
+                  Open Angel Web
+                </Button>
+                <span className="text-xs text-blue-600">to view positions directly</span>
+              </div>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Portfolio Access Warning */}
-      {account && !account.hasPortfolioDataAccess && (
+      {account && !account.hasPortfolioDataAccess && !account.portfolioError?.includes('CORS') && (
         <Alert>
           <Lock className="h-4 w-4" />
           <AlertDescription>
             <strong>Limited Access:</strong> {account.portfolioError}
             <div className="mt-2 text-xs">
-              <strong>Workaround:</strong> Use Angel Broking's mobile app or web platform to view positions. 
-              This is a browser CORS limitation, not an authentication issue.
+              <strong>Workaround:</strong> Use Angel Broking's mobile app or web platform to view positions.
             </div>
           </AlertDescription>
         </Alert>
@@ -246,7 +276,7 @@ export const RealAccountOverview = () => {
             </Card>
           </div>
 
-          {/* Real Positions - Only if portfolio access is available */}
+          {/* Real Positions - Enhanced for CORS handling */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -260,7 +290,7 @@ export const RealAccountOverview = () => {
                   </Badge>
                 ) : (
                   <Badge variant="outline" className="text-amber-700 border-amber-300">
-                    🔒 LIMITED
+                    🔒 CORS LIMITED
                   </Badge>
                 )}
               </CardTitle>
@@ -300,19 +330,47 @@ export const RealAccountOverview = () => {
                 )
               ) : (
                 <div className="text-center py-8">
-                  <Lock className="h-12 w-12 mx-auto mb-4 text-amber-500" />
-                  <h3 className="text-lg font-medium mb-2">Portfolio Data Limited</h3>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Due to browser CORS restrictions, position details are not available.
-                    Your account balance and funds data are working correctly.
-                  </p>
-                  <Alert className="text-left">
-                    <Info className="h-4 w-4" />
-                    <AlertDescription>
-                      <strong>To view positions:</strong> Use Angel Broking's mobile app or web platform.
-                      This is a common limitation when accessing broker APIs directly from browsers.
-                    </AlertDescription>
-                  </Alert>
+                  <div className="space-y-4">
+                    <div className="flex justify-center">
+                      <div className="p-3 bg-blue-100 rounded-full">
+                        <Lock className="h-8 w-8 text-blue-600" />
+                      </div>
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-medium mb-2">Portfolio Data Unavailable</h3>
+                      <p className="text-sm text-gray-600 mb-4">
+                        Browser security policies prevent direct access to portfolio data.
+                        Your account balance and funds information are working correctly.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-md mx-auto">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.open('https://smartapi.angelbroking.com/', '_blank')}
+                        className="flex items-center gap-2"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Angel Web Platform
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.open('https://play.google.com/store/apps/details?id=com.angelbroking.smartapi', '_blank')}
+                        className="flex items-center gap-2"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Angel Mobile App
+                      </Button>
+                    </div>
+                    <Alert className="text-left max-w-md mx-auto">
+                      <Info className="h-4 w-4" />
+                      <AlertDescription className="text-xs">
+                        <strong>Why this happens:</strong> Browsers block cross-origin requests to financial APIs for security.
+                        This is normal and doesn't affect trading functionality.
+                      </AlertDescription>
+                    </Alert>
+                  </div>
                 </div>
               )}
             </CardContent>
@@ -330,6 +388,7 @@ export const RealAccountOverview = () => {
             <div>Real Data Mode: {isRealBrokerData ? '✅ YES' : '❌ NO'}</div>
             <div>Connection Status: {isConnected ? '✅ Connected' : '❌ Disconnected'}</div>
             <div>Portfolio Access: {account?.hasPortfolioDataAccess ? '✅ YES' : '❌ CORS Limited'}</div>
+            <div>Portfolio Error: {account?.portfolioError || 'None'}</div>
             <div>Last Updated: {lastUpdated?.toISOString()}</div>
             <div>Account ID: {account?.accountId}</div>
             <div>Is Simulation: {account?.accountId.startsWith('SIM_') ? '❌ YES' : '✅ NO'}</div>
